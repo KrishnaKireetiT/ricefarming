@@ -1,13 +1,14 @@
 """
 Component for displaying context information with expandable sections.
 Shows graph facts, semantic search results, and keyword search results.
-Now includes comment sections for each component.
+Includes comment sections and multi-language translation support.
 """
 
 import streamlit as st
 from typing import List, Dict, Any, Optional, Callable
 
 from components.comment_input import display_comment_section
+from components.translation_helper import get_display_text, translate_text
 
 
 def display_entities(
@@ -16,7 +17,8 @@ def display_entities(
     query_id: int = None,
     comments: Dict[str, str] = None,
     on_comment_save: Callable = None,
-    editable: bool = True
+    editable: bool = True,
+    language_mode: str = "English"
 ):
     """Display extracted and aligned entities with optional comment section."""
     col1, col2 = st.columns(2)
@@ -55,10 +57,11 @@ def display_graph_facts(
     query_id: int = None,
     comments: Dict[str, str] = None,
     on_comment_save: Callable = None,
-    editable: bool = True
+    editable: bool = True,
+    language_mode: str = "English"
 ):
     """
-    Display graph traversal facts.
+    Display graph traversal facts (always shown in English).
     
     Args:
         graph_facts: List of graph facts with source, relation, target
@@ -67,12 +70,13 @@ def display_graph_facts(
         comments: Existing comments dict
         on_comment_save: Callback to save comments
         editable: Whether comments can be edited
+        language_mode: Not used for graph facts (kept for API consistency)
     """
     with st.expander(f"📊 Graph Facts ({len(graph_facts)})", expanded=expanded):
         if not graph_facts:
             st.caption("No graph facts found")
         else:
-            # Display as a table-like structure
+            # Display as a table-like structure (always in English)
             for fact in graph_facts:
                 tier_emoji = "🔵" if fact.get("tier") == "core" else "⚪"
                 source = fact.get("source", "")
@@ -103,10 +107,11 @@ def display_semantic_search(
     query_id: int = None,
     comments: Dict[str, str] = None,
     on_comment_save: Callable = None,
-    editable: bool = True
+    editable: bool = True,
+    language_mode: str = "English"
 ):
     """
-    Display semantic (vector) search results.
+    Display semantic (vector) search results with language support.
     
     Args:
         vector_context: List of search results with text, score, type
@@ -115,6 +120,7 @@ def display_semantic_search(
         comments: Existing comments dict
         on_comment_save: Callback to save comments
         editable: Whether comments can be edited
+        language_mode: "English", "Vietnamese", or "Both"
     """
     chunks = [r for r in vector_context if r.get("type") == "Chunk"]
     
@@ -122,6 +128,10 @@ def display_semantic_search(
         if not vector_context:
             st.caption("No semantic search results")
         elif chunks:
+            # Show translation indicator
+            if language_mode != "English":
+                st.caption(f"🌐 Translating to Vietnamese..." if language_mode == "Vietnamese" else "🌐 Showing both languages")
+            
             # Display chunks
             st.markdown("##### 📄 Text Chunks")
             for i, chunk in enumerate(chunks[:5]):
@@ -129,8 +139,21 @@ def display_semantic_search(
                 title = chunk.get("title", "Untitled")
                 text = chunk.get("text", "")[:300]
                 
-                st.markdown(f"**[{i+1}] {title}** (score: {score:.3f})")
-                st.markdown(f"> {text}...")
+                if language_mode == "English":
+                    st.markdown(f"**[{i+1}] 🇬🇧 {title}** (score: {score:.3f})")
+                    st.markdown(f"> {text}...")
+                elif language_mode == "Vietnamese":
+                    vi_title = translate_text(title)
+                    vi_text = translate_text(text)
+                    st.markdown(f"**[{i+1}] 🇻🇳 {vi_title}** (score: {score:.3f})")
+                    st.markdown(f"> {vi_text}...")
+                else:  # Both
+                    vi_title = translate_text(title)
+                    vi_text = translate_text(text)
+                    st.markdown(f"**[{i+1}] {title}** (score: {score:.3f})")
+                    st.markdown(f"🇬🇧 > {text}...")
+                    st.markdown(f"🇻🇳 > {vi_text}...")
+                
                 st.divider()
     
     # Comment section for semantic search
@@ -150,10 +173,11 @@ def display_keyword_search(
     query_id: int = None,
     comments: Dict[str, str] = None,
     on_comment_save: Callable = None,
-    editable: bool = True
+    editable: bool = True,
+    language_mode: str = "English"
 ):
     """
-    Display keyword (fulltext) search results.
+    Display keyword (fulltext) search results with language support.
     
     Args:
         keyword_results: List of keyword search results
@@ -162,18 +186,34 @@ def display_keyword_search(
         comments: Existing comments dict
         on_comment_save: Callback to save comments
         editable: Whether comments can be edited
+        language_mode: "English", "Vietnamese", or "Both"
     """
     with st.expander(f"🔤 Keyword Search ({len(keyword_results)})", expanded=expanded):
         if not keyword_results:
             st.caption("No keyword search results")
         else:
+            # Show translation indicator
+            if language_mode != "English":
+                st.caption(f"🌐 Translating to Vietnamese..." if language_mode == "Vietnamese" else "🌐 Showing both languages")
+            
             for i, result in enumerate(keyword_results[:5]):
                 score = result.get("score", 0)
                 text = result.get("text", "")[:300]
                 chunk_id = result.get("id", "")
                 
-                st.markdown(f"**[{i+1}]** (score: {score:.2f}) `{chunk_id}`")
-                st.markdown(f"> {text}...")
+                if language_mode == "English":
+                    st.markdown(f"**[{i+1}] 🇬🇧** (score: {score:.2f}) `{chunk_id}`")
+                    st.markdown(f"> {text}...")
+                elif language_mode == "Vietnamese":
+                    vi_text = translate_text(text)
+                    st.markdown(f"**[{i+1}] 🇻🇳** (score: {score:.2f}) `{chunk_id}`")
+                    st.markdown(f"> {vi_text}...")
+                else:  # Both
+                    vi_text = translate_text(text)
+                    st.markdown(f"**[{i+1}]** (score: {score:.2f}) `{chunk_id}`")
+                    st.markdown(f"🇬🇧 > {text}...")
+                    st.markdown(f"🇻🇳 > {vi_text}...")
+                
                 st.divider()
     
     # Comment section for keyword search
@@ -196,10 +236,11 @@ def display_all_context(
     query_id: int = None,
     comments: Dict[str, str] = None,
     on_comment_save: Callable = None,
-    editable: bool = True
+    editable: bool = True,
+    language_mode: str = "English"
 ):
     """
-    Display all context information in a structured layout.
+    Display all context information in a structured layout with language support.
     
     Args:
         raw_entities: List of extracted entity strings
@@ -211,30 +252,33 @@ def display_all_context(
         comments: Existing comments dict keyed by component_type
         on_comment_save: Callback function(query_id, component_type, text) to save comments
         editable: Whether comments can be edited
+        language_mode: "English", "Vietnamese", or "Both"
     """
     
     st.markdown("### 📋 Context Details")
     
-    # Entities section
+    # Entities section (no translation needed for entity names)
     display_entities(
         raw_entities, 
         aligned_entities,
         query_id=query_id,
         comments=comments,
         on_comment_save=on_comment_save,
-        editable=editable
+        editable=editable,
+        language_mode=language_mode
     )
     
     st.divider()
     
-    # Three main context sections
+    # Three main context sections with language support
     display_graph_facts(
         graph_facts, 
         expanded=True,
         query_id=query_id,
         comments=comments,
         on_comment_save=on_comment_save,
-        editable=editable
+        editable=editable,
+        language_mode=language_mode
     )
     display_semantic_search(
         vector_context, 
@@ -242,7 +286,8 @@ def display_all_context(
         query_id=query_id,
         comments=comments,
         on_comment_save=on_comment_save,
-        editable=editable
+        editable=editable,
+        language_mode=language_mode
     )
     display_keyword_search(
         keyword_results, 
@@ -250,5 +295,6 @@ def display_all_context(
         query_id=query_id,
         comments=comments,
         on_comment_save=on_comment_save,
-        editable=editable
+        editable=editable,
+        language_mode=language_mode
     )

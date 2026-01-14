@@ -58,6 +58,8 @@ def init_session_state():
         st.session_state.view_history_id = None
     if "theme" not in st.session_state:
         st.session_state.theme = "light"
+    if "language_mode" not in st.session_state:
+        st.session_state.language_mode = "Both"
 
 
 # ================================================================
@@ -224,6 +226,17 @@ def display_single_query_tab():
         placeholder="Khi nào nên bón phân đạm cho lúa? / When should I apply nitrogen fertilizer to rice?"
     )
     
+    # Language toggle for references
+    lang_col1, lang_col2 = st.columns([1, 3])
+    with lang_col1:
+        st.session_state.language_mode = st.radio(
+            "🌐 Reference Language:",
+            ["English", "Vietnamese", "Both"],
+            index=["English", "Vietnamese", "Both"].index(st.session_state.language_mode),
+            horizontal=True,
+            help="Choose how to display reference chunks: original English, translated Vietnamese, or both"
+        )
+    
     col1, col2 = st.columns([1, 4])
     with col1:
         run_button = st.button("🚀 Run Query", use_container_width=True, type="primary")
@@ -296,7 +309,8 @@ def display_single_query_tab():
             query_id=query_id,
             comments=comments,
             on_comment_save=on_comment_save,
-            editable=True
+            editable=True,
+            language_mode=st.session_state.language_mode
         )
         
         st.divider()
