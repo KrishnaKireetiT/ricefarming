@@ -24,8 +24,9 @@ def display_comment_section(
         on_save: Callback function(query_id, component_type, comment_text) to save comment
         editable: Whether the comment can be edited (True for live view, False for history)
     """
-    # Create a unique key for this comment section
-    key_prefix = f"comment_{query_id}_{component_type}"
+    import uuid
+    unique_suffix = uuid.uuid4().hex[:8]
+    key_prefix = f"comment_{query_id}_{component_type}_{unique_suffix}"
     
     # Component type to display label mapping
     labels = {
