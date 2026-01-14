@@ -326,7 +326,7 @@ class PipelineV6(BasePipeline):
             status["fulltext_indexes"] = [r["name"] for r in fulltext_result]
             
             # Check required indexes - NO Visual index needed
-            required_vector = [f"{config.VECTOR_INDEX_NAME}_chunk"]
+            required_vector = [config.VECTOR_INDEX_NAME]
             required_fulltext = ["chunk_text_index"]
             
             missing = []
@@ -367,7 +367,7 @@ class PipelineV6(BasePipeline):
                 RETURN 'Chunk' AS type, node.chunk_id AS id, node.embedding_text AS text, 
                        node.title AS title, score
                 ORDER BY score DESC
-            """, {"index_name": f"{config.VECTOR_INDEX_NAME}_chunk", "k": k, "embedding": query_embedding})
+            """, {"index_name": config.VECTOR_INDEX_NAME, "k": k, "embedding": query_embedding})
             results.extend(list(chunk_results))
         except Exception as e:
             logger.warning(f"Chunk vector search failed: {e}")
@@ -483,7 +483,7 @@ Context:
         
         # Root agent span
         with self.langfuse.start_as_current_observation(
-            as_type="agent",
+            as_type="agent",  
             name="Rice_Farming_Advisor_V6",
             input={"question": question}
         ) as agent:

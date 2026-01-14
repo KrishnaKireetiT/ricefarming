@@ -223,7 +223,7 @@ def display_trace_embedded(trace_id: str, trace_url: str, height: int = 500):
         from langfuse import Langfuse
         
         langfuse = Langfuse(timeout=config.LANGFUSE_TIMEOUT)
-        trace = langfuse.get_trace(trace_id)
+        trace = langfuse.fetch_trace(trace_id)
         
         if trace and hasattr(trace, 'observations'):
             # Build tree structure from observations

@@ -5,4 +5,8 @@ services:
     restart: always
     ports:
       - "443:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
     command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501
