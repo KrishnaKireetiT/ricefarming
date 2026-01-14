@@ -1,10 +1,13 @@
 """
 Component for displaying user query history.
+Now loads and displays comments when viewing history details.
 """
 
 import streamlit as st
 from typing import List, Dict, Any, Callable
 from datetime import datetime
+
+import database as db
 
 
 def display_history_sidebar(
@@ -109,33 +112,53 @@ def display_history_table(
                 on_delete(query_id)
 
 
-def display_history_detail(entry: Dict):
+def display_history_detail(entry: Dict, editable: bool = True):
     """
-    Display full details of a history entry.
+    Display full details of a history entry with comments.
     
     Args:
         entry: Full history entry with all fields
+        editable: Whether comments can be edited in this view
     """
     from components.answer_display import display_answer
     from components.context_display import display_all_context
     from components.trace_display import display_trace_link
     from components.agent_graph_display import display_agent_graph
     
+    query_id = entry.get("id")
     question = entry.get("question", "")
     farmer_answer = entry.get("farmer_answer", "")
     
-    # Display answer
-    display_answer(farmer_answer, question)
+    # Load existing comments for this query
+    comments = db.get_comments_for_query(query_id)
+    
+    # Callback for saving comments
+    def on_comment_save(qid: int, component_type: str, comment_text: str):
+        db.save_comment(qid, component_type, comment_text)
+    
+    # Display answer with comment
+    display_answer(
+        farmer_answer, 
+        question,
+        query_id=query_id,
+        comments=comments,
+        on_comment_save=on_comment_save,
+        editable=editable
+    )
     
     st.divider()
     
-    # Display context
+    # Display context with comments
     display_all_context(
         raw_entities=entry.get("raw_entities", []),
         aligned_entities=entry.get("aligned_entities", []),
         graph_facts=entry.get("graph_facts", []),
         vector_context=entry.get("vector_context", []),
-        keyword_results=entry.get("keyword_results", [])
+        keyword_results=entry.get("keyword_results", []),
+        query_id=query_id,
+        comments=comments,
+        on_comment_save=on_comment_save,
+        editable=editable
     )
     
     st.divider()

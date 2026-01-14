@@ -1,17 +1,32 @@
 """
 Component for displaying the farmer answer in a prominent, user-friendly format.
+Now includes optional comment section.
 """
 
 import streamlit as st
+from typing import Optional, Callable, Dict
+
+from components.comment_input import display_comment_section
 
 
-def display_answer(farmer_answer: str, question: str = None):
+def display_answer(
+    farmer_answer: str, 
+    question: str = None,
+    query_id: int = None,
+    comments: Dict[str, str] = None,
+    on_comment_save: Callable = None,
+    editable: bool = True
+):
     """
     Display the farmer answer prominently.
     
     Args:
         farmer_answer: The generated answer text
         question: Optional question to display above the answer
+        query_id: Query ID for comment association
+        comments: Existing comments dict
+        on_comment_save: Callback to save comments
+        editable: Whether comments can be edited
     """
     if question:
         st.markdown(f"### ❓ Question")
@@ -34,6 +49,16 @@ def display_answer(farmer_answer: str, question: str = None):
         """,
         unsafe_allow_html=True
     )
+    
+    # Comment section for answer
+    if query_id:
+        display_comment_section(
+            query_id=query_id,
+            component_type="answer",
+            existing_comment=comments.get("answer") if comments else None,
+            on_save=on_comment_save,
+            editable=editable
+        )
 
 
 def display_answer_card(

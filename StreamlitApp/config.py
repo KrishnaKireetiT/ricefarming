@@ -48,7 +48,7 @@ LANGFUSE_TIMEOUT = int(os.getenv("LANGFUSE_TIMEOUT", "10"))
 # ========================================
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-base-en-v1.5")
 EMBEDDING_NODE_PROPERTY = "embedding_qwen"
-VECTOR_INDEX_NAME = "multimodal_kg_index"
+VECTOR_INDEX_NAME = os.getenv("VECTOR_INDEX_NAME", "v6_kg_index")
 
 # ========================================
 # Search Configuration

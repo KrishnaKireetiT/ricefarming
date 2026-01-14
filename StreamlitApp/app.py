@@ -50,6 +50,8 @@ def init_session_state():
         st.session_state.pipeline = None
     if "current_result" not in st.session_state:
         st.session_state.current_result = None
+    if "current_query_id" not in st.session_state:
+        st.session_state.current_query_id = None
     if "batch_results" not in st.session_state:
         st.session_state.batch_results = []
     if "view_history_id" not in st.session_state:
@@ -232,9 +234,9 @@ def display_single_query_tab():
             result = pipeline.run_query(question)
             st.session_state.current_result = result
             
-            # Save to history
+            # Save to history and store query_id for comments
             user_id = st.session_state.user["id"]
-            db.save_query_result(
+            query_id = db.save_query_result(
                 user_id=user_id,
                 question=result.question,
                 farmer_answer=result.farmer_answer,
@@ -245,14 +247,16 @@ def display_single_query_tab():
                 graph_facts=result.graph_facts,
                 vector_context=result.vector_context,
                 keyword_results=result.keyword_results,
-
                 pipeline_version=pipeline.get_version(),
                 execution_time=result.execution_time
             )
+            st.session_state.current_query_id = query_id
     
     # Display results
     result = st.session_state.current_result
-    if result:
+    query_id = st.session_state.current_query_id
+    
+    if result and query_id:
         st.divider()
         
         # Metrics
@@ -264,19 +268,35 @@ def display_single_query_tab():
         
         st.divider()
         
-        # Answer
-        display_answer(result.farmer_answer, result.question)
+        # Load existing comments and setup save callback
+        comments = db.get_comments_for_query(query_id)
+        
+        def on_comment_save(qid: int, component_type: str, comment_text: str):
+            db.save_comment(qid, component_type, comment_text)
+        
+        # Answer with comment
+        display_answer(
+            result.farmer_answer, 
+            result.question,
+            query_id=query_id,
+            comments=comments,
+            on_comment_save=on_comment_save,
+            editable=True
+        )
         
         st.divider()
         
-        # Context
+        # Context with comments
         display_all_context(
             raw_entities=result.raw_entities,
             aligned_entities=result.aligned_entities,
             graph_facts=result.graph_facts,
             vector_context=result.vector_context,
             keyword_results=result.keyword_results,
-
+            query_id=query_id,
+            comments=comments,
+            on_comment_save=on_comment_save,
+            editable=True
         )
         
         st.divider()
@@ -531,17 +551,29 @@ def main():
                 border-radius: 0 0 8px 8px;
             }
             
-            /* Text inputs and text areas */
+            
+            /* ===== TEXT INPUTS AND TEXT AREAS - FIXED FOR VISIBILITY ===== */
             .stTextInput > div > div > input,
             .stTextArea > div > div > textarea {
-                background-color: var(--bg-tertiary);
-                color: var(--text-primary);
-                border: 1px solid var(--border-color);
+                background-color: #1e2128 !important;
+                color: #fafafa !important;
+                border: 1px solid var(--border-color) !important;
+            }
+            .stTextInput > div > div > input::placeholder,
+            .stTextArea > div > div > textarea::placeholder {
+                color: #8b949e !important;
+                opacity: 0.7 !important;
             }
             .stTextInput > div > div > input:focus,
             .stTextArea > div > div > textarea:focus {
-                border-color: var(--accent-primary);
-                box-shadow: 0 0 0 1px var(--accent-primary);
+                border-color: var(--accent-primary) !important;
+                box-shadow: 0 0 0 1px var(--accent-primary) !important;
+                background-color: #262730 !important;
+            }
+            /* Text area label */
+            .stTextArea label,
+            .stTextInput label {
+                color: var(--text-secondary) !important;
             }
             
             /* Buttons */
@@ -577,10 +609,37 @@ def main():
                 border-color: var(--border-color);
             }
             
-            /* Alerts and info boxes */
-            .stAlert {
-                background-color: var(--bg-tertiary);
-                border: 1px solid var(--border-color);
+            
+            /* ===== ALERTS AND INFO BOXES - IMPROVED ===== */
+            /* Info boxes (st.info) */
+            .stAlert[data-baseweb="notification"] {
+                background-color: rgba(88, 166, 255, 0.1);
+                border: 1px solid #58a6ff;
+                color: var(--text-primary);
+            }
+            .stAlert[data-baseweb="notification"] [data-testid="stMarkdownContainer"] {
+                color: var(--text-primary) !important;
+            }
+            
+            /* Success boxes (st.success) */
+            .stAlert[kind="success"] {
+                background-color: rgba(63, 185, 80, 0.1);
+                border: 1px solid #3fb950;
+                color: var(--text-primary);
+            }
+            
+            /* Warning boxes (st.warning) */
+            .stAlert[kind="warning"] {
+                background-color: rgba(210, 153, 34, 0.1);
+                border: 1px solid #d29922;
+                color: var(--text-primary);
+            }
+            
+            /* Error boxes (st.error) */
+            .stAlert[kind="error"] {
+                background-color: rgba(248, 81, 73, 0.1);
+                border: 1px solid #f85149;
+                color: var(--text-primary);
             }
             
             /* Code blocks */
