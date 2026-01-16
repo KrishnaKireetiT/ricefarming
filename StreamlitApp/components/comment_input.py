@@ -38,6 +38,16 @@ def display_comment_section(
     }
     label = labels.get(component_type, f"💬 Comment on {component_type}")
     
+    # Component-specific placeholders for testing feedback
+    placeholders = {
+        "answer": "Is the answer accurate and complete? Note any: incorrect info, missing key details, irrelevant content, or unclear explanations. Does it properly cite sources [DOC-N]?",
+        "entities": "Are the extracted entities relevant to the question? Note any: missed important terms, irrelevant extractions, or poor KG alignment scores. Are the aligned entities correct?",
+        "graph_facts": "Are the graph relationships relevant and accurate? Note any: irrelevant facts, missing important connections, incorrect relationships, or low-quality scores. Do the facts help answer the question?",
+        "semantic_search": "Are the retrieved chunks semantically relevant? Note any: off-topic results, missing relevant chunks, poor score quality (too low/high), or chunks that don't match the question intent.",
+        "keyword_search": "Do the keyword results match the query terms? Note any: completely irrelevant results, missing obvious matches, poor score distribution, or results that don't contain key terms from the question."
+    }
+    placeholder = placeholders.get(component_type, "Add notes, observations, or feedback about this section...")
+    
     with st.container():
         if editable:
             # Editable mode: show text area and save button
@@ -45,9 +55,9 @@ def display_comment_section(
                 comment_text = st.text_area(
                     "Add your comment:",
                     value=existing_comment or "",
-                    height=80,
+                    height=100,
                     key=f"{key_prefix}_input",
-                    placeholder="Add notes, observations, or feedback about this section...",
+                    placeholder=placeholder,
                     label_visibility="collapsed"
                 )
                 
