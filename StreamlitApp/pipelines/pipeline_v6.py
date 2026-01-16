@@ -351,15 +351,16 @@ class PipelineV6(BasePipeline):
         
         return status
     
-    def _vector_search_chunks(self, query: str, k: int = None) -> List[Dict]:
-        """Semantic search over Chunks only (image info is embedded in chunks)."""
+    def _vector_search_chunks(self, query: str, k: int = None, 
+                               score_threshold: float = 0.8) -> List[Dict]:
+        """Semantic search over Chunks with dynamic score-based filtering."""
         if k is None:
             k = config.VECTOR_SEARCH_K
         query_embedding = self.embeddings.embed_query(query)
         
         results = []
         
-        # Search chunks
+        # Search chunks - fetch more than k to allow filtering
         try:
             chunk_results = self.graph.query("""
                 CALL db.index.vector.queryNodes($index_name, $k, $embedding)
@@ -367,8 +368,13 @@ class PipelineV6(BasePipeline):
                 RETURN 'Chunk' AS type, node.chunk_id AS id, node.embedding_text AS text, 
                        node.title AS title, score
                 ORDER BY score DESC
-            """, {"index_name": config.VECTOR_INDEX_NAME, "k": k, "embedding": query_embedding})
-            results.extend(list(chunk_results))
+            """, {"index_name": config.VECTOR_INDEX_NAME, "k": k * 2, "embedding": query_embedding})
+            
+            # Apply score threshold - only return chunks above the bar
+            for r in chunk_results:
+                if r["score"] >= score_threshold:
+                    results.append(r)
+                    
         except Exception as e:
             logger.warning(f"Chunk vector search failed: {e}")
             # Fallback: try to get chunks without vector search
@@ -386,65 +392,100 @@ class PipelineV6(BasePipeline):
         
         return results[:k]
     
-    def _keyword_search_chunks(self, query: str, k: int = None) -> List[Dict]:
-        """Fulltext keyword search over Chunks."""
+    def _keyword_search_chunks(self, query: str, raw_entities: List[str] = None,
+                                 k: int = None, score_threshold: float = 0.2,
+                                 max_candidates: int = 30) -> List[Dict]:
+        """
+        Keyword search with semantic re-ranking.
+        
+        Args:
+            query: Original user question
+            raw_entities: Entities already extracted by _extract_raw_entities (reused!)
+            k: Max results to return
+            score_threshold: Minimum similarity score (default: 0.2)
+            max_candidates: Max chunks to consider before re-ranking
+        """
         if k is None:
             k = config.KEYWORD_SEARCH_K
+        if raw_entities is None:
+            raw_entities = []
         
-        # Escape special Lucene characters for fulltext search
-        def escape_lucene(text: str) -> str:
-            """Escape special characters for Lucene query."""
-            special_chars = ['+', '-', '&', '|', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '*', '?', ':', '\\', '/']
-            for char in special_chars:
-                text = text.replace(char, f'\\{char}')
-            return text
+        # Stopwords to filter
+        STOPWORDS = {
+            'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+            'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+            'may', 'might', 'must', 'shall', 'can', 'need', 'to', 'of', 'in', 'for',
+            'on', 'with', 'at', 'by', 'from', 'as', 'and', 'but', 'or', 'not', 'only',
+            'i', 'me', 'my', 'we', 'our', 'you', 'your', 'he', 'him', 'she', 'her',
+            'it', 'its', 'they', 'them', 'their', 'what', 'which', 'who', 'this', 'that',
+            'how', 'when', 'where', 'why', 'all', 'each', 'any', 'some', 'such'
+        }
         
-        # Try fulltext index first
-        try:
-            # Escape the query for Lucene
-            escaped_query = escape_lucene(query)
-            
-            # Use wildcard matching for better results
-            words = [w.strip() for w in escaped_query.split() if len(w.strip()) > 1]
-            if words:
-                lucene_query = " OR ".join([f"*{w}*" for w in words[:5]])
-            else:
-                lucene_query = f"*{escaped_query}*"
-            
-            res = self.graph.query("""
-                CALL db.index.fulltext.queryNodes('chunk_text_index', $q)
-                YIELD node, score
-                RETURN node.embedding_text AS text, node.chunk_id AS id, score
-                ORDER BY score DESC LIMIT $k
-            """, {"q": lucene_query, "k": k})
-            results = [{"text": r["text"], "id": r["id"], "score": r["score"]} for r in res]
-            if results:
-                return results
-        except Exception as e:
-            logger.warning(f"Fulltext search failed: {e}")
+        # Build search terms from raw entities + query words
+        search_terms = set()
         
-        # Fallback: Use CONTAINS for basic keyword matching
-        try:
-            words = [w.strip() for w in query.split() if len(w.strip()) > 2]
-            if not words:
-                return []
-            
-            search_word = words[0] if words else query[:20]
-            
-            res = self.graph.query("""
-                MATCH (c:Chunk)
-                WHERE c.embedding_text CONTAINS $word
-                RETURN c.embedding_text AS text, c.chunk_id AS id, 1.0 AS score
-                LIMIT $k
-            """, {"word": search_word, "k": k})
-            
-            results = [{"text": r["text"], "id": r["id"], "score": r["score"]} for r in res]
-            if results:
-                logger.info(f"Using CONTAINS fallback for keyword search: {len(results)} results")
-            return results
-        except Exception as e:
-            logger.warning(f"Keyword search fallback failed: {e}")
+        # Add raw entities (already extracted, no extra LLM call!)
+        for entity in raw_entities:
+            for word in entity.lower().split():
+                if len(word) >= 3:
+                    search_terms.add(word)
+        
+        # Add longer words from query as backup
+        for word in query.lower().split():
+            clean = ''.join(c for c in word if c.isalnum())
+            if len(clean) >= 4 and clean not in STOPWORDS:
+                search_terms.add(clean)
+        
+        if not search_terms:
             return []
+        
+        # Find candidate chunks containing any search term
+        candidates = []
+        seen_ids = set()
+        
+        for term in list(search_terms)[:8]:  # Limit to 8 terms
+            try:
+                res = self.graph.query("""
+                    MATCH (c:Chunk)
+                    WHERE toLower(c.embedding_text) CONTAINS $term
+                    RETURN c.embedding_text AS text, c.chunk_id AS id
+                    LIMIT $limit
+                """, {"term": term.lower(), "limit": max_candidates // len(search_terms) + 5})
+                
+                for r in res:
+                    if r["id"] not in seen_ids:
+                        candidates.append({"text": r["text"], "id": r["id"]})
+                        seen_ids.add(r["id"])
+            except Exception as e:
+                logger.warning(f"Keyword search error for term '{term}': {e}")
+        
+        if not candidates:
+            return []
+        
+        # Semantic re-ranking - score by similarity to original query
+        query_embedding = self.embeddings.embed_query(query)
+        candidate_texts = [c["text"] for c in candidates]
+        candidate_embeddings = self.embeddings.embed_documents(candidate_texts)
+        
+        query_vec = np.array(query_embedding)
+        
+        scored_candidates = []
+        for i, cand in enumerate(candidates):
+            cand_vec = np.array(candidate_embeddings[i])
+            # Cosine similarity (embeddings are normalized, so dot product = cosine)
+            similarity = float(np.dot(query_vec, cand_vec))
+            
+            if similarity >= score_threshold:
+                scored_candidates.append({
+                    "text": cand["text"],
+                    "id": cand["id"],
+                    "score": similarity
+                })
+        
+        # Sort by score and return top k
+        scored_candidates.sort(key=lambda x: x["score"], reverse=True)
+        
+        return scored_candidates[:k]
     
     def _build_farmer_answer(self, evidence: dict) -> str:
         """Generate farmer-friendly answer from evidence."""
@@ -538,7 +579,7 @@ Context:
             # Execute searches
             graph_facts = self._graph_traversal_search(aligned)
             vector_results = self._vector_search_chunks(question)
-            keyword_results = self._keyword_search_chunks(question)
+            keyword_results = self._keyword_search_chunks(question, raw_entities=raw_entities)
             
             # Update and end tools
             tool1.update(output={"facts_count": len(graph_facts)})
