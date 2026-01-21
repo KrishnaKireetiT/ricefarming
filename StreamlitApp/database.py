@@ -341,3 +341,62 @@ def get_batch_run_results(batch_run_id: int, user_id: int) -> List[Dict]:
 
 # Initialize database on import
 init_db()
+
+# ================================================================
+# Session Tokens for Persistent Login
+# ================================================================
+
+def save_session_token(user_id: int, token: str) -> bool:
+    """Save a session token for a user."""
+    from datetime import datetime, timedelta
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Create table if not exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS session_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        """)
+        # Insert token (expires in 30 days)
+        expires_at = datetime.now() + timedelta(days=30)
+        cursor.execute(
+            "INSERT OR REPLACE INTO session_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
+            (user_id, token, expires_at)
+        )
+        conn.commit()
+        return True
+
+def validate_session_token(user_id: int, token: str) -> bool:
+    """Validate a session token for a user."""
+    from datetime import datetime
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Check if table exists first
+        cursor.execute("""
+            SELECT name FROM sqlite_master WHERE type='table' AND name='session_tokens'
+        """)
+        if not cursor.fetchone():
+            return False
+        
+        cursor.execute("""
+            SELECT expires_at FROM session_tokens 
+            WHERE user_id = ? AND token = ?
+        """, (user_id, token))
+        row = cursor.fetchone()
+        if row:
+            expires_at = datetime.fromisoformat(row["expires_at"])
+            return expires_at > datetime.now()
+        return False
+
+def clear_user_sessions(user_id: int) -> bool:
+    """Clear all session tokens for a user."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM session_tokens WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return True

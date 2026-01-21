@@ -1,0 +1,22 @@
+# Imports to add after line 38
+import session_utils as session
+
+# In init_session_state(), add after line 73:
+    if "cookie_manager" not in st.session_state:
+        st.session_state.cookie_manager = session.get_cookie_manager()
+    
+    # Restore session from cookie if not logged in
+    if st.session_state.user is None and st.session_state.cookie_manager:
+        restored_user = session.restore_session_from_cookie(st.session_state.cookie_manager)
+        if restored_user:
+            st.session_state.user = restored_user
+            st.session_state.theme = restored_user.get("theme", "light")
+
+# In display_login_page(), after successful login (after line 101):
+                        # Save session cookie
+                        session.save_session_cookie(user["id"], user["username"], st.session_state.cookie_manager)
+
+# In display_sidebar(), logout button (after line 237):
+        # Clear session cookie
+        session.clear_session_cookie(st.session_state.cookie_manager)
+        db.clear_user_sessions(user["id"])

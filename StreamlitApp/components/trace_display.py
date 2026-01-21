@@ -220,23 +220,30 @@ def display_trace_embedded(trace_id: str, trace_url: str, height: int = 500):
     
     # Try to fetch and display trace data
     try:
+        import time
         from langfuse import Langfuse
+        
+        # Small delay to allow Langfuse to process the trace
+        time.sleep(0.5)
         
         langfuse = Langfuse(timeout=config.LANGFUSE_TIMEOUT)
         trace = langfuse.api.trace.get(trace_id)
         
-        if trace and hasattr(trace, 'observations'):
+        if trace and hasattr(trace, 'observations') and trace.observations:
             # Build tree structure from observations
             trace_data = _build_trace_tree(trace)
-            html = _generate_trace_html(trace_data)
-            components.html(html, height=height, scrolling=True)
+            if trace_data:
+                html = _generate_trace_html(trace_data)
+                components.html(html, height=height, scrolling=True)
+            else:
+                st.info("Trace structure not yet available. Click the link above to view in Langfuse.")
         else:
             st.info("Trace data not yet available. Click the link above to view in Langfuse.")
             
     except Exception as e:
-        # Fallback: show iframe
+        # Fallback: show error but don't crash
         st.warning(f"Could not fetch trace details: {str(e)[:100]}")
-        st.info("The trace is being processed. View it directly in Langfuse:")
+        st.info("The trace is being processed. View it directly in Langfuse.")
         
 
 def _build_trace_tree(trace) -> Dict[str, Any]:
@@ -251,12 +258,23 @@ def _build_trace_tree(trace) -> Dict[str, Any]:
     """
     observations = trace.observations if hasattr(trace, 'observations') else []
     
+    if not observations:
+        # Return empty placeholder if no observations
+        return {
+            "name": "No observations available",
+            "type": "agent",
+            "duration_ms": 0,
+            "input": {},
+            "output": {},
+            "children": []
+        }
+    
     # Create lookup by ID
     obs_map = {}
     for obs in observations:
         obs_dict = {
             "id": obs.id,
-            "name": obs.name,
+            "name": obs.name if hasattr(obs, 'name') else "Unknown",
             "type": obs.type if hasattr(obs, 'type') else "span",
             "input": obs.input if hasattr(obs, 'input') else {},
             "output": obs.output if hasattr(obs, 'output') else {},
@@ -277,7 +295,18 @@ def _build_trace_tree(trace) -> Dict[str, Any]:
         else:
             root_nodes.append(obs)
     
-    # Return the root (usually the agent)
+    # Handle multiple root nodes - wrap them in a container
+    if len(root_nodes) > 1:
+        return {
+            "name": "Trace Root",
+            "type": "agent",
+            "duration_ms": sum(n.get("duration_ms", 0) for n in root_nodes),
+            "input": {},
+            "output": {},
+            "children": root_nodes
+        }
+    
+    # Return single root node
     if root_nodes:
         return root_nodes[0]
     

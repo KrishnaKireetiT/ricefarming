@@ -37,3 +37,4 @@ bcrypt>=4.0.0
 
 # Visualization
 graphviz>=0.20.0
+extra-streamlit-components>=0.1.60  # For cookie-based session persistence

@@ -60,7 +60,7 @@ GRAPH_TRAVERSAL_TOP_K = int(os.getenv("GRAPH_TRAVERSAL_TOP_K", "20"))
 
 # V7 Pipeline Configuration
 RRF_K = int(os.getenv("RRF_K", "60"))  # Reciprocal Rank Fusion constant
-VECTOR_SCORE_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.8"))  # Semantic search threshold
+VECTOR_SCORE_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.3"))  # Lowered from 0.8 to allow retrieval
 KEYWORD_SCORE_THRESHOLD = float(os.getenv("KEYWORD_SCORE_THRESHOLD", "0.2"))  # Keyword search threshold
 
 # ========================================

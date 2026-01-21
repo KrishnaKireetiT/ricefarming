@@ -3,7 +3,7 @@ Pipeline Testing App - Main Streamlit Application
 
 A comprehensive testing app for the multi-modal rice farming KG pipeline.
 Features:
-- User authentication (signup/login)
+- User authentication (signup/login) with session persistence
 - Single query testing with full result display
 - Batch testing with CSV/JSON/TXT upload or text paste
 - Query history per user
@@ -13,6 +13,8 @@ Features:
 
 import streamlit as st
 import time
+import secrets
+import hashlib
 from typing import Optional
 
 # Configure page - must be first Streamlit command
@@ -35,10 +37,23 @@ from components.answer_display import display_answer, display_answer_card
 from components.context_display import display_all_context, display_entities
 from components.trace_display import display_trace_embedded, display_trace_link
 from components.agent_graph_display import display_agent_graph
+import session_utils as session
 from components.history_display import display_history_table, display_history_detail
 from components.batch_display import display_batch_input, display_batch_results, display_batch_export
 
+# Import cookie manager for session persistence
+try:
+    import extra_streamlit_components as stx
+    COOKIES_AVAILABLE = True
+except ImportError:
+    COOKIES_AVAILABLE = False
+    st.warning("Cookie manager not available. Session will not persist across page refreshes. Install: pip install extra-streamlit-components")
 
+
+
+# ================================================================
+# Session Persistence with Cookies
+# ================================================================
 # ================================================================
 # Session State Initialization
 # ================================================================
@@ -56,6 +71,15 @@ def init_session_state():
     if "batch_results" not in st.session_state:
         st.session_state.batch_results = []
     if "view_history_id" not in st.session_state:
+    if "cookie_manager" not in st.session_state:
+        st.session_state.cookie_manager = session.get_cookie_manager()
+    
+    # Restore session from cookie if not logged in
+    if st.session_state.user is None and st.session_state.cookie_manager:
+        restored_user = session.restore_session_from_cookie(st.session_state.cookie_manager)
+        if restored_user:
+            st.session_state.user = restored_user
+            st.session_state.theme = restored_user.get("theme", "light")
         st.session_state.view_history_id = None
     if "active_tab" not in st.session_state:
         st.session_state.active_tab = "Single Query"
@@ -87,6 +111,8 @@ def display_login_page():
                         st.session_state.user = user
                         st.session_state.theme = user.get("theme", "light")
                         st.success("Login successful!")
+                        # Save session cookie
+                        session.save_session_cookie(user["id"], user["username"], st.session_state.cookie_manager)
                         st.rerun()
                     else:
                         st.error("Invalid username or password")
@@ -224,6 +250,11 @@ def display_sidebar():
     # Logout button
     st.sidebar.divider()
     if st.sidebar.button("🚪 Logout", use_container_width=True):
+        # Clear session cookie
+        user = st.session_state.user
+        session.clear_session_cookie(st.session_state.cookie_manager)
+        if user:
+            db.clear_user_sessions(user["id"])
         st.session_state.user = None
         st.session_state.pipeline = None
         st.rerun()
