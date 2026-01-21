@@ -408,7 +408,7 @@ class PipelineV7(BasePipeline):
                 RETURN 'Chunk' AS type, node.chunk_id AS id, node.embedding_text AS text, 
                        node.title AS title, score
                 ORDER BY score DESC
-            """, {"index_name": f"{config.VECTOR_INDEX_NAME}_chunk", "k": k * 2, "embedding": query_embedding})
+            """, {"index_name": f"{config.VECTOR_INDEX_NAME}", "k": k * 2, "embedding": query_embedding})
             
             # Apply score threshold - only return chunks above the bar
             filtered = [r for r in chunk_results if r["score"] >= score_threshold]
@@ -465,8 +465,8 @@ class PipelineV7(BasePipeline):
         if not search_terms: 
             return []
         
-        # Build Lucene query with fuzzy matching
-        lucene_terms = [f"{term}~1" for term in list(search_terms)[:10]]
+        # Build Lucene query (removed fuzzy ~1 operator - causes parsing error in Neo4j)
+        lucene_terms = list(search_terms)[:10]
         lucene_query = " OR ".join(lucene_terms)
         
         try:
