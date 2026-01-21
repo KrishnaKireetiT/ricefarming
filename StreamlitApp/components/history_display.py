@@ -146,5 +146,7 @@ def display_history_detail(entry: Dict):
     if trace_id:
         display_trace_link(trace_id, trace_url)
     
-    # Display agent graph
-    display_agent_graph()
+    # Display agent graph (if available)
+    graph_data = entry.get("graph_data")
+    if graph_data:
+        display_agent_graph(graph_data)
