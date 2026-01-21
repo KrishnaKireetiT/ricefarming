@@ -48,7 +48,7 @@ LANGFUSE_TIMEOUT = int(os.getenv("LANGFUSE_TIMEOUT", "10"))
 # ========================================
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "BAAI/bge-base-en-v1.5")
 EMBEDDING_NODE_PROPERTY = "embedding_qwen"
-VECTOR_INDEX_NAME = os.getenv("VECTOR_INDEX_NAME", "multimodal_kg_index")
+VECTOR_INDEX_NAME = "multimodal_kg_index"
 
 # ========================================
 # Search Configuration
@@ -57,6 +57,11 @@ ENTITY_ALIGNMENT_THRESHOLD = float(os.getenv("ENTITY_ALIGNMENT_THRESHOLD", "0.6"
 VECTOR_SEARCH_K = int(os.getenv("VECTOR_SEARCH_K", "5"))
 KEYWORD_SEARCH_K = int(os.getenv("KEYWORD_SEARCH_K", "3"))
 GRAPH_TRAVERSAL_TOP_K = int(os.getenv("GRAPH_TRAVERSAL_TOP_K", "20"))
+
+# V7 Pipeline Configuration
+RRF_K = int(os.getenv("RRF_K", "60"))  # Reciprocal Rank Fusion constant
+VECTOR_SCORE_THRESHOLD = float(os.getenv("VECTOR_SCORE_THRESHOLD", "0.8"))  # Semantic search threshold
+KEYWORD_SCORE_THRESHOLD = float(os.getenv("KEYWORD_SCORE_THRESHOLD", "0.2"))  # Keyword search threshold
 
 # ========================================
 # Relation Weights for Graph Traversal

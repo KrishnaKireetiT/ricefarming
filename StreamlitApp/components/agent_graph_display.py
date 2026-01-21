@@ -1,277 +1,164 @@
 """
-Component for displaying the agent graph structure in Langfuse-style format.
+Component for displaying the agent graph structure as an interactive flow diagram.
 """
 
 import streamlit as st
 import streamlit.components.v1 as components
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import json
 
 
-# Default agent graph structure (matches the notebook pipeline)
-DEFAULT_AGENT_GRAPH = {
-    "name": "Rice_Farming_Advisor",
-    "type": "agent",
-    "children": [
-        {
-            "name": "Extract_Question_Entities",
-            "type": "generation",
-            "description": "LLM extracts key entities from the question"
-        },
-        {
-            "name": "Align_Entities_To_KG",
-            "type": "chain",
-            "description": "Align extracted entities to KG using embedding similarity"
-        },
-        {
-            "name": "Multi_Source_Evidence_Retrieval",
-            "type": "chain",
-            "description": "Parallel retrieval from multiple sources",
-            "children": [
-                {
-                    "name": "KG_Graph_Traversal",
-                    "type": "tool",
-                    "description": "Traverse knowledge graph for related facts"
-                },
-                {
-                    "name": "Vector_Semantic_Search",
-                    "type": "tool",
-                    "description": "Semantic search over chunks and visuals"
-                },
-                {
-                    "name": "Keyword_Fulltext_Search",
-                    "type": "tool",
-                    "description": "Fulltext keyword search over chunks"
-                }
-            ]
-        },
-        {
-            "name": "Aggregate_Evidence_Hybrid_Search",
-            "type": "chain",
-            "description": "Merge and deduplicate evidence from all sources"
-        },
-        {
-            "name": "Generate_Farmer_Answer",
-            "type": "generation",
-            "description": "LLM generates farmer-friendly answer from context"
-        }
-    ]
-}
-
-
-def _get_type_color(node_type: str) -> dict:
-    """Get color scheme for node type."""
-    colors = {
-        "agent": {"bg": "#e3f2fd", "border": "#1565c0", "text": "#1565c0"},
-        "chain": {"bg": "#f3e5f5", "border": "#7b1fa2", "text": "#7b1fa2"},
-        "tool": {"bg": "#fff3e0", "border": "#ef6c00", "text": "#ef6c00"},
-        "generation": {"bg": "#e8f5e9", "border": "#2e7d32", "text": "#2e7d32"},
-    }
-    return colors.get(node_type.lower(), {"bg": "#eceff1", "border": "#607d8b", "text": "#607d8b"})
-
-
-def _generate_graph_html(graph_data: Dict[str, Any], execution_data: Dict[str, Any] = None) -> str:
-    """
-    Generate HTML for Langfuse-style agent graph visualization.
-    
-    Args:
-        graph_data: Static graph structure
-        execution_data: Optional execution data with timing info
-        
-    Returns:
-        HTML string for the graph visualization
-    """
-    css = """
-    <style>
-        .graph-container {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding: 20px;
-        }
-        .graph-node {
-            display: flex;
-            align-items: flex-start;
-            margin: 8px 0;
-        }
-        .node-connector {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin-right: 8px;
-        }
-        .connector-line {
-            width: 2px;
-            height: 20px;
-            background: #e0e0e0;
-        }
-        .connector-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #e0e0e0;
-        }
-        .node-content {
-            flex: 1;
-            border-radius: 8px;
-            padding: 12px 16px;
-            border: 2px solid;
-            transition: all 0.2s ease;
-        }
-        .node-content:hover {
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            transform: translateX(4px);
-        }
-        .node-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .node-type-badge {
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .node-name {
-            font-weight: 600;
-            font-size: 14px;
-            color: #333;
-        }
-        .node-time {
-            margin-left: auto;
-            font-size: 12px;
-            color: #666;
-            font-weight: 500;
-        }
-        .node-description {
-            margin-top: 6px;
-            font-size: 12px;
-            color: #666;
-        }
-        .children-container {
-            margin-left: 30px;
-            border-left: 2px dashed #e0e0e0;
-            padding-left: 15px;
-        }
-        .parallel-indicator {
-            font-size: 10px;
-            color: #666;
-            padding: 2px 6px;
-            background: #f5f5f5;
-            border-radius: 4px;
-            margin-left: 8px;
-        }
-    </style>
-    """
-    
-    def render_node(node: Dict, level: int = 0, is_last: bool = True) -> str:
-        name = node.get("name", "Unknown")
-        node_type = node.get("type", "span")
-        description = node.get("description", "")
-        children = node.get("children", [])
-        
-        colors = _get_type_color(node_type)
-        
-        # Get execution time if available
-        time_str = ""
-        if execution_data and name in execution_data:
-            duration = execution_data[name].get("duration_ms", 0)
-            if duration >= 1000:
-                time_str = f"⏱ {duration/1000:.2f}s"
-            else:
-                time_str = f"⏱ {duration}ms"
-        
-        # Check if children are parallel (tools under retrieval)
-        parallel = len(children) > 1 and all(c.get("type") == "tool" for c in children)
-        
-        html = f"""
-        <div class="graph-node">
-            <div class="node-content" style="background: {colors['bg']}; border-color: {colors['border']};">
-                <div class="node-header">
-                    <span class="node-type-badge" style="background: {colors['border']}; color: white;">
-                        {node_type}
-                    </span>
-                    <span class="node-name">{name}</span>
-                    {"<span class='parallel-indicator'>⚡ parallel</span>" if parallel else ""}
-                    <span class="node-time">{time_str}</span>
-                </div>
-                {"<div class='node-description'>" + description + "</div>" if description else ""}
-            </div>
-        </div>
-        """
-        
-        if children:
-            html += '<div class="children-container">'
-            for i, child in enumerate(children):
-                html += render_node(child, level + 1, i == len(children) - 1)
-            html += '</div>'
-        
-        return html
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>{css}</head>
-    <body>
-        <div class="graph-container">
-            {render_node(graph_data)}
-        </div>
-    </body>
-    </html>
-    """
-
-
 def display_agent_graph(
-    execution_data: Dict[str, Any] = None,
-    graph_structure: Dict[str, Any] = None,
-    height: int = 450
+    graph_data: Dict[str, Any],
+    height: int = 600,
+    theme: str = "light"
 ):
     """
-    Display the agent graph structure with execution timing.
+    Display the agent graph as an interactive flow diagram.
     
     Args:
-        execution_data: Dict mapping node names to execution info
-        graph_structure: Custom graph structure (uses default if None)
-        height: Height of the component
+        graph_data: Dict with 'nodes' and 'edges' from pipeline.get_agent_graph()
+        height: Height of the component in pixels
+        theme: "light" or "dark" for background color
     """
     st.markdown("### 🕸️ Agent Graph")
     
-    graph = graph_structure or DEFAULT_AGENT_GRAPH
-    html = _generate_graph_html(graph, execution_data)
-    components.html(html, height=height, scrolling=True)
-
-
-def display_agent_graph_text():
-    """Display a simple text-based agent graph."""
-    st.markdown("### 🕸️ Agent Graph Structure")
+    nodes = graph_data.get("nodes", [])
+    edges = graph_data.get("edges", [])
     
-    graph_text = """
-```
-Rice_Farming_Advisor (agent)
-├─ Extract_Question_Entities (generation)
-├─ Align_Entities_To_KG (chain)
-├─ Multi_Source_Evidence_Retrieval (chain)
-│  ├─ KG_Graph_Traversal (tool)      ⚡ parallel
-│  ├─ Vector_Semantic_Search (tool)  ⚡ parallel
-│  └─ Keyword_Fulltext_Search (tool) ⚡ parallel
-├─ Aggregate_Evidence_Hybrid_Search (chain)
-└─ Generate_Farmer_Answer (generation)
-```
-    """
-    st.markdown(graph_text)
-
-
-def build_execution_data_from_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Build execution data dict from pipeline result for graph display.
+    # Color scheme based on node type
+    color_map = {
+        "start": "#4caf50",
+        "end": "#f44336",
+        "agent": "#1565c0",
+        "chain": "#7b1fa2", 
+        "tool": "#ef6c00",
+        "generation": "#2e7d32",
+    }
     
-    Args:
-        result: Pipeline result dictionary
+    # Convert to vis.js format
+    vis_nodes = []
+    for node in nodes:
+        node_type = node.get("type", "chain")
+        color = color_map.get(node_type, "#607d8b")
+        shape = "ellipse" if node_type in ["start", "end"] else "box"
         
-    Returns:
-        Dict mapping node names to timing info
+        vis_nodes.append({
+            "id": node["id"],
+            "label": node["label"],
+            "color": color,
+            "font": {"color": "white", "size": 12, "face": "arial"},
+            "shape": shape,
+            "margin": 8
+        })
+    
+    vis_edges = []
+    for edge in edges:
+        vis_edges.append({
+            "from": edge[0],
+            "to": edge[1],
+            "arrows": "to",
+            "smooth": {"type": "cubicBezier", "roundness": 0.3}
+        })
+    
+    nodes_json = json.dumps(vis_nodes)
+    edges_json = json.dumps(vis_edges)
+    
+    # Theme-aware colors
+    if theme == "dark":
+        bg_color = "#1a1d24"
+        border_color = "#3d4654"
+    else:
+        bg_color = "#fafafa"
+        border_color = "#e0e0e0"
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+        <style>
+            html, body {{
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+            }}
+            #mynetwork {{
+                width: 100%;
+                height: 100%;
+                background-color: {bg_color};
+                border: 1px solid {border_color};
+                border-radius: 8px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div id="mynetwork"></div>
+        <script type="text/javascript">
+            var nodes = new vis.DataSet({nodes_json});
+            var edges = new vis.DataSet({edges_json});
+            
+            var container = document.getElementById('mynetwork');
+            var data = {{ nodes: nodes, edges: edges }};
+            
+            var options = {{
+                layout: {{
+                    hierarchical: {{
+                        enabled: true,
+                        direction: "UD",
+                        sortMethod: "directed",
+                        nodeSpacing: 180,
+                        levelSeparation: 70,
+                        treeSpacing: 200,
+                        blockShifting: true,
+                        edgeMinimization: true,
+                        parentCentralization: true
+                    }}
+                }},
+                physics: {{
+                    enabled: false
+                }},
+                edges: {{
+                    color: {{ color: '#848484', highlight: '#ff6b6b' }},
+                    width: 2
+                }},
+                nodes: {{
+                    borderWidth: 0,
+                    shadow: {{
+                        enabled: true,
+                        color: 'rgba(0,0,0,0.15)',
+                        size: 8,
+                        x: 2,
+                        y: 2
+                    }}
+                }},
+                interaction: {{
+                    hover: true,
+                    zoomView: true,
+                    dragView: true,
+                    zoomSpeed: 0.5
+                }}
+            }};
+            
+            var network = new vis.Network(container, data, options);
+            
+            // Fit and zoom appropriately
+            network.once('stabilizationIterationsDone', function() {{
+                network.fit({{
+                    animation: false
+                }});
+                // Zoom out a bit for better overview
+                var scale = network.getScale();
+                network.moveTo({{
+                    scale: Math.min(scale, 0.9),
+                    animation: false
+                }});
+            }});
+        </script>
+    </body>
+    </html>
     """
-    # This would be populated from actual trace data
-    # For now, return empty dict (times will not be shown)
-    return {}
+    
+    components.html(html, height=height, scrolling=False)

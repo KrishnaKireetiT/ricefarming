@@ -110,3 +110,23 @@ class BasePipeline(ABC):
             if progress_callback:
                 progress_callback(i + 1, len(questions))
         return results
+    
+    def get_agent_graph(self) -> Dict[str, Any]:
+        """
+        Return the agent graph structure for visualization.
+        
+        Returns:
+            Dict with 'nodes' (list of node dicts) and 'edges' (list of edge tuples)
+            Each node: {"id": str, "label": str, "type": str}
+            Each edge: (from_id, to_id)
+        """
+        # Default implementation - override in subclasses
+        return {
+            "nodes": [
+                {"id": "start", "label": "__start__", "type": "start"},
+                {"id": "agent", "label": self.get_name(), "type": "agent"},
+                {"id": "end", "label": "__end__", "type": "end"}
+            ],
+            "edges": [("start", "agent"), ("agent", "end")]
+        }
+

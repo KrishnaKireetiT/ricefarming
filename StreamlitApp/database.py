@@ -88,20 +88,6 @@ def init_db():
             )
         """)
         
-        # Query comments table - for user annotations on result components
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS query_comments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                query_id INTEGER NOT NULL,
-                component_type TEXT NOT NULL,
-                comment_text TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (query_id) REFERENCES query_history (id) ON DELETE CASCADE,
-                UNIQUE(query_id, component_type)
-            )
-        """)
-        
         conn.commit()
 
 
@@ -351,54 +337,6 @@ def get_batch_run_results(batch_run_id: int, user_id: int) -> List[Dict]:
                     result[field] = json.loads(result[field])
             results.append(result)
         return results
-
-
-# ================================================================
-# Query Comments
-# ================================================================
-
-def save_comment(query_id: int, component_type: str, comment_text: str) -> int:
-    """
-    Save or update a comment for a query component.
-    Uses INSERT OR REPLACE for upsert behavior.
-    Returns the comment ID.
-    """
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO query_comments (query_id, component_type, comment_text, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        """, (query_id, component_type, comment_text))
-        conn.commit()
-        return cursor.lastrowid
-
-
-def get_comments_for_query(query_id: int) -> Dict[str, str]:
-    """
-    Get all comments for a query, keyed by component_type.
-    Returns dict like {"answer": "comment text", "graph_facts": "another comment"}
-    """
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT component_type, comment_text
-            FROM query_comments
-            WHERE query_id = ?
-        """, (query_id,))
-        
-        return {row["component_type"]: row["comment_text"] for row in cursor.fetchall()}
-
-
-def delete_comment(query_id: int, component_type: str) -> bool:
-    """Delete a specific comment."""
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "DELETE FROM query_comments WHERE query_id = ? AND component_type = ?",
-            (query_id, component_type)
-        )
-        conn.commit()
-        return cursor.rowcount > 0
 
 
 # Initialize database on import

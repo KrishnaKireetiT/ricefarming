@@ -27,6 +27,7 @@ st.set_page_config(
 import config
 import database as db
 from pipelines.pipeline_v6 import PipelineV6
+from pipelines.pipeline_v7 import PipelineV7
 from pipelines.base import PipelineResult
 
 # Import components
@@ -48,18 +49,18 @@ def init_session_state():
         st.session_state.user = None
     if "pipeline" not in st.session_state:
         st.session_state.pipeline = None
+    if "selected_pipeline" not in st.session_state:
+        st.session_state.selected_pipeline = None
     if "current_result" not in st.session_state:
         st.session_state.current_result = None
-    if "current_query_id" not in st.session_state:
-        st.session_state.current_query_id = None
     if "batch_results" not in st.session_state:
         st.session_state.batch_results = []
     if "view_history_id" not in st.session_state:
         st.session_state.view_history_id = None
+    if "active_tab" not in st.session_state:
+        st.session_state.active_tab = "Single Query"
     if "theme" not in st.session_state:
         st.session_state.theme = "light"
-    if "language_mode" not in st.session_state:
-        st.session_state.language_mode = "Both"
 
 
 # ================================================================
@@ -150,20 +151,36 @@ def display_sidebar():
     st.sidebar.divider()
     st.sidebar.markdown("### ⚙️ Pipeline")
     
-    # V6 Pipeline - No Visual Nodes (image info embedded in chunks)
-    pipeline_options = ["KG Pipeline V6 (No Visuals)"]
-    selected_pipeline = st.sidebar.selectbox(
+    # Available pipelines
+    AVAILABLE_PIPELINES = {
+        "KG Pipeline V6 (No Visuals)": PipelineV6,
+        "KG Pipeline V7 (BM25 + RRF)": PipelineV7,
+    }
+    
+    # Pipeline selection dropdown
+    selected_pipeline_name = st.sidebar.selectbox(
         "Select pipeline:",
-        pipeline_options,
+        list(AVAILABLE_PIPELINES.keys()),
+        index=1,  # Default to V7
         label_visibility="collapsed"
     )
+    
+    # Check if pipeline selection changed
+    if st.session_state.selected_pipeline != selected_pipeline_name:
+        # Pipeline changed - need to reinitialize
+        st.session_state.selected_pipeline = selected_pipeline_name
+        st.session_state.pipeline = None  # Force reinitialization
+        # Clear current results when switching pipelines
+        st.session_state.current_result = None
+        st.session_state.batch_results = []
     
     # Initialize pipeline if needed
     if st.session_state.pipeline is None:
         with st.sidebar.status("Loading pipeline...", expanded=True):
-            st.session_state.pipeline = PipelineV6()
+            PipelineClass = AVAILABLE_PIPELINES[selected_pipeline_name]
+            st.session_state.pipeline = PipelineClass()
             st.session_state.pipeline.initialize()
-        st.sidebar.success("Pipeline ready!")
+        st.sidebar.success(f"✅ {selected_pipeline_name} ready!")
     
     # Database status check
     if st.sidebar.button("🔄 Check DB Status", use_container_width=True):
@@ -199,6 +216,7 @@ def display_sidebar():
                 use_container_width=True
             ):
                 st.session_state.view_history_id = entry["id"]
+                st.session_state.active_tab = "History"  # Switch to History tab
                 st.rerun()
     else:
         st.sidebar.caption("No queries yet")
@@ -226,17 +244,6 @@ def display_single_query_tab():
         placeholder="Khi nào nên bón phân đạm cho lúa? / When should I apply nitrogen fertilizer to rice?"
     )
     
-    # Language toggle for references
-    lang_col1, lang_col2 = st.columns([1, 3])
-    with lang_col1:
-        st.session_state.language_mode = st.radio(
-            "🌐 Reference Language:",
-            ["English", "Vietnamese", "Both"],
-            index=["English", "Vietnamese", "Both"].index(st.session_state.language_mode),
-            horizontal=True,
-            help="Choose how to display reference chunks: original English, translated Vietnamese, or both"
-        )
-    
     col1, col2 = st.columns([1, 4])
     with col1:
         run_button = st.button("🚀 Run Query", use_container_width=True, type="primary")
@@ -247,9 +254,9 @@ def display_single_query_tab():
             result = pipeline.run_query(question)
             st.session_state.current_result = result
             
-            # Save to history and store query_id for comments
+            # Save to history
             user_id = st.session_state.user["id"]
-            query_id = db.save_query_result(
+            db.save_query_result(
                 user_id=user_id,
                 question=result.question,
                 farmer_answer=result.farmer_answer,
@@ -260,16 +267,14 @@ def display_single_query_tab():
                 graph_facts=result.graph_facts,
                 vector_context=result.vector_context,
                 keyword_results=result.keyword_results,
+
                 pipeline_version=pipeline.get_version(),
                 execution_time=result.execution_time
             )
-            st.session_state.current_query_id = query_id
     
     # Display results
     result = st.session_state.current_result
-    query_id = st.session_state.current_query_id
-    
-    if result and query_id:
+    if result:
         st.divider()
         
         # Metrics
@@ -281,36 +286,19 @@ def display_single_query_tab():
         
         st.divider()
         
-        # Load existing comments and setup save callback
-        comments = db.get_comments_for_query(query_id)
-        
-        def on_comment_save(qid: int, component_type: str, comment_text: str):
-            db.save_comment(qid, component_type, comment_text)
-        
-        # Answer with comment
-        display_answer(
-            result.farmer_answer, 
-            result.question,
-            query_id=query_id,
-            comments=comments,
-            on_comment_save=on_comment_save,
-            editable=True
-        )
+        # Answer
+        display_answer(result.farmer_answer, result.question)
         
         st.divider()
         
-        # Context with comments
+        # Context
         display_all_context(
             raw_entities=result.raw_entities,
             aligned_entities=result.aligned_entities,
             graph_facts=result.graph_facts,
             vector_context=result.vector_context,
             keyword_results=result.keyword_results,
-            query_id=query_id,
-            comments=comments,
-            on_comment_save=on_comment_save,
-            editable=True,
-            language_mode=st.session_state.language_mode
+
         )
         
         st.divider()
@@ -322,7 +310,14 @@ def display_single_query_tab():
             display_trace_embedded(result.trace_id, result.trace_url, height=400)
         
         with col2:
-            display_agent_graph(height=400)
+            # Get graph structure dynamically from the pipeline
+            graph_data = st.session_state.pipeline.get_agent_graph()
+            
+            display_agent_graph(
+                graph_data=graph_data, 
+                height=600,
+                theme=st.session_state.theme
+            )
 
 
 # ================================================================
@@ -565,29 +560,17 @@ def main():
                 border-radius: 0 0 8px 8px;
             }
             
-            
-            /* ===== TEXT INPUTS AND TEXT AREAS - FIXED FOR VISIBILITY ===== */
+            /* Text inputs and text areas */
             .stTextInput > div > div > input,
             .stTextArea > div > div > textarea {
-                background-color: #1e2128 !important;
-                color: #fafafa !important;
-                border: 1px solid var(--border-color) !important;
-            }
-            .stTextInput > div > div > input::placeholder,
-            .stTextArea > div > div > textarea::placeholder {
-                color: #8b949e !important;
-                opacity: 0.7 !important;
+                background-color: var(--bg-tertiary);
+                color: var(--text-primary);
+                border: 1px solid var(--border-color);
             }
             .stTextInput > div > div > input:focus,
             .stTextArea > div > div > textarea:focus {
-                border-color: var(--accent-primary) !important;
-                box-shadow: 0 0 0 1px var(--accent-primary) !important;
-                background-color: #262730 !important;
-            }
-            /* Text area label */
-            .stTextArea label,
-            .stTextInput label {
-                color: var(--text-secondary) !important;
+                border-color: var(--accent-primary);
+                box-shadow: 0 0 0 1px var(--accent-primary);
             }
             
             /* Buttons */
@@ -623,37 +606,10 @@ def main():
                 border-color: var(--border-color);
             }
             
-            
-            /* ===== ALERTS AND INFO BOXES - IMPROVED ===== */
-            /* Info boxes (st.info) */
-            .stAlert[data-baseweb="notification"] {
-                background-color: rgba(88, 166, 255, 0.1);
-                border: 1px solid #58a6ff;
-                color: var(--text-primary);
-            }
-            .stAlert[data-baseweb="notification"] [data-testid="stMarkdownContainer"] {
-                color: var(--text-primary) !important;
-            }
-            
-            /* Success boxes (st.success) */
-            .stAlert[kind="success"] {
-                background-color: rgba(63, 185, 80, 0.1);
-                border: 1px solid #3fb950;
-                color: var(--text-primary);
-            }
-            
-            /* Warning boxes (st.warning) */
-            .stAlert[kind="warning"] {
-                background-color: rgba(210, 153, 34, 0.1);
-                border: 1px solid #d29922;
-                color: var(--text-primary);
-            }
-            
-            /* Error boxes (st.error) */
-            .stAlert[kind="error"] {
-                background-color: rgba(248, 81, 73, 0.1);
-                border: 1px solid #f85149;
-                color: var(--text-primary);
+            /* Alerts and info boxes */
+            .stAlert {
+                background-color: var(--bg-tertiary);
+                border: 1px solid var(--border-color);
             }
             
             /* Code blocks */
@@ -710,20 +666,39 @@ def main():
     # Display sidebar
     display_sidebar()
     
-    # Main content tabs
-    tab1, tab2, tab3 = st.tabs([
-        "🔍 Single Query",
-        "📦 Batch Testing",
-        "📜 History"
-    ])
+    # Main content - Tab selection with radio buttons
+    tab_options = ["🔍 Single Query", "📦 Batch Testing", "📜 History"]
+    tab_names = ["Single Query", "Batch Testing", "History"]
     
-    with tab1:
+    # Find index of active tab
+    try:
+        active_index = tab_names.index(st.session_state.active_tab)
+    except ValueError:
+        active_index = 0
+    
+    # Tab selector
+    selected_tab = st.radio(
+        "Select view:",
+        tab_options,
+        index=active_index,
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+    
+    # Update active tab if user manually changed it
+    selected_tab_name = tab_names[tab_options.index(selected_tab)]
+    if selected_tab_name != st.session_state.active_tab:
+        st.session_state.active_tab = selected_tab_name
+        st.rerun()
+    
+    st.divider()
+    
+    # Display content based on active tab
+    if st.session_state.active_tab == "Single Query":
         display_single_query_tab()
-    
-    with tab2:
+    elif st.session_state.active_tab == "Batch Testing":
         display_batch_testing_tab()
-    
-    with tab3:
+    elif st.session_state.active_tab == "History":
         display_history_tab()
 
 

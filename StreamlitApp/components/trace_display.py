@@ -223,135 +223,21 @@ def display_trace_embedded(trace_id: str, trace_url: str, height: int = 500):
         from langfuse import Langfuse
         
         langfuse = Langfuse(timeout=config.LANGFUSE_TIMEOUT)
+        trace = langfuse.get_trace(trace_id)
         
-        # Fetch trace with observations (works on both Cloud and self-hosted)
-        try:
-            # Try new API first
-            trace = langfuse.api.trace.get(trace_id)
-            
-            # Extract observations from the response
-            observations = None
-            if trace:
-                # Check different possible response formats
-                if hasattr(trace, 'observations'):
-                    observations = trace.observations
-                elif hasattr(trace, 'data') and hasattr(trace.data, 'observations'):
-                    observations = trace.data.observations
-                elif isinstance(trace, dict) and 'observations' in trace:
-                    observations = trace['observations']
-            
-            if observations:
-                # Build tree structure from observations
-                trace_data = _build_trace_tree_from_observations(observations, trace_id)
-                html = _generate_trace_html(trace_data)
-                components.html(html, height=height, scrolling=True)
-            else:
-                st.info("Trace data not yet available. Click the link above to view in Langfuse.")
-                
-        except Exception as get_error:
-            # Log the specific error for debugging
-            st.info(f"Trace is being processed. View it in Langfuse for now.")
+        if trace and hasattr(trace, 'observations'):
+            # Build tree structure from observations
+            trace_data = _build_trace_tree(trace)
+            html = _generate_trace_html(trace_data)
+            components.html(html, height=height, scrolling=True)
+        else:
+            st.info("Trace data not yet available. Click the link above to view in Langfuse.")
             
     except Exception as e:
-        # Fallback: show link only
+        # Fallback: show iframe
+        st.warning(f"Could not fetch trace details: {str(e)[:100]}")
         st.info("The trace is being processed. View it directly in Langfuse:")
         
-
-def _build_trace_tree_from_observations(observations: list, trace_id: str) -> Dict[str, Any]:
-    """
-    Build hierarchical tree structure from observations v2 API response.
-    
-    Args:
-        observations: List of observations from observations_v_2.get_many()
-        trace_id: The trace ID
-        
-    Returns:
-        Hierarchical dict representation of the trace
-    """
-    if not observations:
-        return {
-            "name": "Rice_Farming_Advisor",
-            "type": "agent",
-            "duration_ms": 0,
-            "input": {},
-            "output": {},
-            "children": []
-        }
-    
-    # Create lookup by ID
-    obs_map = {}
-    for obs in observations:
-        # Handle both dict and object responses
-        if isinstance(obs, dict):
-            obs_id = obs.get('id')
-            obs_name = obs.get('name', 'Unknown')
-            obs_type = obs.get('type', 'span')
-            obs_input = obs.get('input', {})
-            obs_output = obs.get('output', {})
-            parent_id = obs.get('parent_observation_id')
-            start_time = obs.get('start_time')
-            end_time = obs.get('end_time')
-        else:
-            obs_id = getattr(obs, 'id', None)
-            obs_name = getattr(obs, 'name', 'Unknown')
-            obs_type = getattr(obs, 'type', 'span')
-            obs_input = getattr(obs, 'input', {})
-            obs_output = getattr(obs, 'output', {})
-            parent_id = getattr(obs, 'parent_observation_id', None)
-            start_time = getattr(obs, 'start_time', None)
-            end_time = getattr(obs, 'end_time', None)
-        
-        # Calculate duration
-        duration_ms = 0
-        if start_time and end_time:
-            try:
-                if hasattr(start_time, 'total_seconds'):
-                    duration_ms = int((end_time - start_time).total_seconds() * 1000)
-                else:
-                    # Handle datetime strings
-                    from datetime import datetime
-                    if isinstance(start_time, str):
-                        start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                        end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-                        duration_ms = int((end_dt - start_dt).total_seconds() * 1000)
-            except:
-                pass
-        
-        obs_dict = {
-            "id": obs_id,
-            "name": obs_name,
-            "type": obs_type.lower() if obs_type else "span",
-            "input": obs_input if obs_input else {},
-            "output": obs_output if obs_output else {},
-            "duration_ms": duration_ms,
-            "parent_id": parent_id,
-            "children": []
-        }
-        obs_map[obs_id] = obs_dict
-    
-    # Build tree
-    root_nodes = []
-    for obs_id, obs in obs_map.items():
-        parent_id = obs.get("parent_id")
-        if parent_id and parent_id in obs_map:
-            obs_map[parent_id]["children"].append(obs)
-        else:
-            root_nodes.append(obs)
-    
-    # Return the root (usually the agent)
-    if root_nodes:
-        return root_nodes[0]
-    
-    # Fallback
-    return {
-        "name": "Rice_Farming_Advisor",
-        "type": "agent",
-        "duration_ms": 0,
-        "input": {},
-        "output": {},
-        "children": []
-    }
-
 
 def _build_trace_tree(trace) -> Dict[str, Any]:
     """

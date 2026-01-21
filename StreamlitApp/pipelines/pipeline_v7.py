@@ -1,9 +1,12 @@
 """
-Rice Farming KG Pipeline V6 - No Visual Nodes
-Based on kg_pipeline_v6_no_visuals.ipynb
+Rice Farming KG Pipeline V7 - BM25 + RRF Hybrid Search
+Based on kg_pipeline_v7.ipynb
 
-Key change: Visual information is now embedded directly in chunk text via handbook_enhanced_v4.json.
-No separate Visual nodes needed - image explanations are searchable as regular text.
+Major Upgrades from V6:
+1. Neo4j Full-Text Search (BM25): Replaced manual CONTAINS with Lucene-based BM25 ranking
+2. Reciprocal Rank Fusion (RRF): Proper hybrid aggregation of KG, Vector, and Keyword results
+3. Entity-Driven Query Expansion: Aligned entities expand keyword queries automatically
+4. Graph Neighbor Retrieval: NEXT_CHUNK relationships for context continuity
 """
 
 import os
@@ -122,17 +125,19 @@ class GraphExtraction(BaseModel):
 
 
 # ================================================================
-# Pipeline V6 Implementation - No Visual Nodes
+# Pipeline V7 Implementation - BM25 + RRF
 # ================================================================
 
-class PipelineV6(BasePipeline):
+class PipelineV7(BasePipeline):
     """
-    Rice Farming KG Pipeline V6 - No Visual Nodes
+    Rice Farming KG Pipeline V7 - BM25 + RRF
     
     Features:
     - L1/L2 Knowledge Graph structure
-    - Image explanations embedded in chunk text (no separate Visual nodes)
-    - Hybrid search (vector + keyword + graph) on chunks only
+    - BM25 keyword search with entity-driven query expansion
+    - Reciprocal Rank Fusion (RRF) for hybrid result aggregation
+    - Graph neighbor retrieval via NEXT_CHUNK relationships
+    - Dynamic score-based filtering for semantic search
     - Langfuse agent graph tracing
     """
     
@@ -145,20 +150,20 @@ class PipelineV6(BasePipeline):
         self._entity_cache = None
     
     def get_name(self) -> str:
-        return "KG Pipeline V6 (No Visual Nodes)"
+        return "KG Pipeline V7 (BM25 + RRF)"
     
     def get_version(self) -> str:
-        return "6.0.0"
+        return "7.0.0"
     
     def get_description(self) -> str:
-        return "Rice farming pipeline with L1/L2 KG. Image explanations embedded in chunks - no Visual nodes. Hybrid search with Langfuse tracing."
+        return "Rice farming pipeline with BM25 keyword search, RRF hybrid aggregation, entity expansion, and graph neighbor retrieval. Langfuse tracing enabled."
     
     def initialize(self) -> None:
         """Initialize models and connections."""
         if self._initialized:
             return
         
-        logger.info("Initializing Pipeline V6...")
+        logger.info("Initializing Pipeline V7...")
         
         # Initialize LLM
         self.llm = QwenRemoteLLM()
@@ -185,24 +190,24 @@ class PipelineV6(BasePipeline):
         self.langfuse = Langfuse(timeout=config.LANGFUSE_TIMEOUT)
         
         self._initialized = True
-        logger.info("Pipeline V6 initialized successfully.")
+        logger.info("Pipeline V7 initialized successfully.")
     
     def is_initialized(self) -> bool:
         return self._initialized
     
     def get_agent_graph(self) -> Dict[str, Any]:
-        """Return the agent graph structure for V6 pipeline visualization."""
+        """Return the agent graph structure for V7 pipeline visualization."""
         return {
             "nodes": [
                 {"id": "start", "label": "__start__", "type": "start"},
-                {"id": "agent", "label": "Rice_Farming_Advisor_V6", "type": "agent"},
+                {"id": "agent", "label": "Rice_Farming_Advisor_V7", "type": "agent"},
                 {"id": "extract", "label": "Extract_Question_Entities", "type": "generation"},
                 {"id": "align", "label": "Align_Entities_To_KG", "type": "chain"},
                 {"id": "retrieval", "label": "Multi_Source_Evidence_Retrieval", "type": "chain"},
                 {"id": "kg_tool", "label": "KG_Graph_Traversal", "type": "tool"},
                 {"id": "vector_tool", "label": "Vector_Semantic_Search", "type": "tool"},
-                {"id": "keyword_tool", "label": "Keyword_Fulltext_Search", "type": "tool"},
-                {"id": "aggregate", "label": "Aggregate_Evidence", "type": "chain"},
+                {"id": "keyword_tool", "label": "Keyword_BM25_Search", "type": "tool"},
+                {"id": "aggregate", "label": "Aggregate_Evidence_RRF", "type": "chain"},
                 {"id": "generate", "label": "Generate_Farmer_Answer", "type": "generation"},
                 {"id": "end", "label": "__end__", "type": "end"}
             ],
@@ -357,7 +362,7 @@ class PipelineV6(BasePipeline):
             fulltext_result = self.graph.query("SHOW INDEXES YIELD name, type WHERE type = 'FULLTEXT' RETURN name")
             status["fulltext_indexes"] = [r["name"] for r in fulltext_result]
             
-            # Check required indexes - NO Visual index needed
+            # Check required indexes
             required_vector = [f"{config.VECTOR_INDEX_NAME}"]
             required_fulltext = ["chunk_text_index"]
             
@@ -383,15 +388,19 @@ class PipelineV6(BasePipeline):
         
         return status
     
-    def _vector_search_chunks(self, query: str, k: int = None) -> List[Dict]:
-        """Semantic search over Chunks only (image info is embedded in chunks)."""
+    def _vector_search_chunks(self, query: str, k: int = None, 
+                              score_threshold: float = None) -> List[Dict]:
+        """Semantic search over Chunks with dynamic score-based filtering."""
         if k is None:
             k = config.VECTOR_SEARCH_K
+        if score_threshold is None:
+            score_threshold = config.VECTOR_SCORE_THRESHOLD
+        
         query_embedding = self.embeddings.embed_query(query)
         
         results = []
         
-        # Search chunks
+        # Search chunks - fetch more results than k to allow filtering
         try:
             chunk_results = self.graph.query("""
                 CALL db.index.vector.queryNodes($index_name, $k, $embedding)
@@ -399,8 +408,11 @@ class PipelineV6(BasePipeline):
                 RETURN 'Chunk' AS type, node.chunk_id AS id, node.embedding_text AS text, 
                        node.title AS title, score
                 ORDER BY score DESC
-            """, {"index_name": f"{config.VECTOR_INDEX_NAME}", "k": k, "embedding": query_embedding})
-            results.extend(list(chunk_results))
+            """, {"index_name": f"{config.VECTOR_INDEX_NAME}_chunk", "k": k * 2, "embedding": query_embedding})
+            
+            # Apply score threshold - only return chunks above the bar
+            filtered = [r for r in chunk_results if r["score"] >= score_threshold]
+            results.extend(filtered)
         except Exception as e:
             logger.warning(f"Chunk vector search failed: {e}")
             # Fallback: try to get chunks without vector search
@@ -418,65 +430,101 @@ class PipelineV6(BasePipeline):
         
         return results[:k]
     
-    def _keyword_search_chunks(self, query: str, k: int = None) -> List[Dict]:
-        """Fulltext keyword search over Chunks."""
-        if k is None:
+    def _keyword_search_bm25(self, query: str, raw_entities: List[str] = None,
+                            aligned_entities: List[Dict] = None, k: int = None) -> List[Dict]:
+        """BM25-powered keyword search with entity-driven query expansion."""
+        if k is None: 
             k = config.KEYWORD_SEARCH_K
+        if raw_entities is None: 
+            raw_entities = []
+        if aligned_entities is None: 
+            aligned_entities = []
         
-        # Escape special Lucene characters for fulltext search
-        def escape_lucene(text: str) -> str:
-            """Escape special characters for Lucene query."""
-            special_chars = ['+', '-', '&', '|', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '*', '?', ':', '\\', '/']
-            for char in special_chars:
-                text = text.replace(char, f'\\{char}')
-            return text
+        # Build search terms with entity expansion
+        search_terms = set()
+        for entity in raw_entities:
+            for word in entity.split():
+                if len(word) >= 3: 
+                    search_terms.add(word)
         
-        # Try fulltext index first
-        try:
-            # Escape the query for Lucene
-            escaped_query = escape_lucene(query)
-            
-            # Use wildcard matching for better results
-            words = [w.strip() for w in escaped_query.split() if len(w.strip()) > 1]
-            if words:
-                lucene_query = " OR ".join([f"*{w}*" for w in words[:5]])
-            else:
-                lucene_query = f"*{escaped_query}*"
-            
-            res = self.graph.query("""
-                CALL db.index.fulltext.queryNodes('chunk_text_index', $q)
-                YIELD node, score
-                RETURN node.embedding_text AS text, node.chunk_id AS id, score
-                ORDER BY score DESC LIMIT $k
-            """, {"q": lucene_query, "k": k})
-            results = [{"text": r["text"], "id": r["id"], "score": r["score"]} for r in res]
-            if results:
-                return results
-        except Exception as e:
-            logger.warning(f"Fulltext search failed: {e}")
+        # ENTITY EXPANSION: Add aligned KG entity names
+        for aligned in aligned_entities:
+            kg_name = aligned.get("name") or aligned.get("matched")
+            if kg_name:
+                for word in kg_name.split():
+                    if len(word) >= 3: 
+                        search_terms.add(word)
         
-        # Fallback: Use CONTAINS for basic keyword matching
-        try:
-            words = [w.strip() for w in query.split() if len(w.strip()) > 2]
-            if not words:
-                return []
-            
-            search_word = words[0] if words else query[:20]
-            
-            res = self.graph.query("""
-                MATCH (c:Chunk)
-                WHERE c.embedding_text CONTAINS $word
-                RETURN c.embedding_text AS text, c.chunk_id AS id, 1.0 AS score
-                LIMIT $k
-            """, {"word": search_word, "k": k})
-            
-            results = [{"text": r["text"], "id": r["id"], "score": r["score"]} for r in res]
-            if results:
-                logger.info(f"Using CONTAINS fallback for keyword search: {len(results)} results")
-            return results
-        except Exception as e:
-            logger.warning(f"Keyword search fallback failed: {e}")
+        # Add important query words
+        STOPWORDS = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'to', 'of', 'in', 'for', 'on', 'with'}
+        for word in query.lower().split():
+            clean = ''.join(c for c in word if c.isalnum())
+            if len(clean) >= 4 and clean not in STOPWORDS: 
+                search_terms.add(clean)
+        
+        if not search_terms: 
             return []
+        
+        # Build Lucene query with fuzzy matching
+        lucene_terms = [f"{term}~1" for term in list(search_terms)[:10]]
+        lucene_query = " OR ".join(lucene_terms)
+        
+        try:
+            # Use Neo4j Full-Text Index (BM25)
+            results = self.graph.query("""
+                CALL db.index.fulltext.queryNodes("chunk_text_index", $lucene_query)
+                YIELD node, score
+                RETURN node.chunk_id AS id, node.embedding_text AS text, score
+                ORDER BY score DESC LIMIT $top_k
+            """, {"lucene_query": lucene_query, "top_k": k * 2})
+            
+            # GRAPH NEIGHBOR RETRIEVAL: Expand with NEXT_CHUNK context
+            expanded, seen = [], set()
+            for r in results[:k]:
+                if r["id"] not in seen:
+                    expanded.append(r)
+                    seen.add(r["id"])
+                    # Fetch neighboring chunks
+                    neighbors = self.graph.query("""
+                        MATCH (c:Chunk {chunk_id: $cid})-[:NEXT_CHUNK]->(next:Chunk)
+                        RETURN next.chunk_id AS id, next.embedding_text AS text, $score * 0.5 AS score
+                        UNION
+                        MATCH (prev:Chunk)-[:NEXT_CHUNK]->(c:Chunk {chunk_id: $cid})
+                        RETURN prev.chunk_id AS id, prev.embedding_text AS text, $score * 0.5 AS score
+                    """, {"cid": r["id"], "score": r["score"]})
+                    for neighbor in neighbors:
+                        if neighbor["id"] not in seen and len(expanded) < k * 1.5:
+                            expanded.append(neighbor)
+                            seen.add(neighbor["id"])
+            return expanded[:k]
+        except Exception as e:
+            logger.warning(f"BM25 search failed: {e}")
+            return []
+    
+    def reciprocal_rank_fusion(self, ranked_lists: List[List[Dict]], k: int = None) -> List[Dict]:
+        """Merge multiple ranked result lists using Reciprocal Rank Fusion."""
+        if k is None: 
+            k = config.RRF_K
+        rrf_scores, doc_data = {}, {}
+        
+        for result_list in ranked_lists:
+            for rank, doc in enumerate(result_list):
+                doc_id = doc.get('id')
+                if not doc_id: 
+                    continue
+                # RRF formula: 1 / (k + rank)
+                rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (k + rank)
+                if doc_id not in doc_data: 
+                    doc_data[doc_id] = doc
+        
+        # Build final ranked list
+        merged = []
+        for doc_id, rrf_score in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True):
+            doc = doc_data[doc_id].copy()
+            doc['rrf_score'] = rrf_score
+            doc['score'] = rrf_score
+            merged.append(doc)
+        return merged
     
     def _build_farmer_answer(self, evidence: dict) -> str:
         """Generate farmer-friendly answer from evidence."""
@@ -516,7 +564,7 @@ Context:
         # Root agent span
         with self.langfuse.start_as_current_observation(
             as_type="agent",
-            name="Rice_Farming_Advisor_V6",
+            name="Rice_Farming_Advisor_V7",
             input={"question": question}
         ) as agent:
             
@@ -562,15 +610,15 @@ Context:
                 input={"query": question}
             )
             tool3 = retrieval_span.start_observation(
-                name="Keyword_Fulltext_Search",
+                name="Keyword_BM25_Search",
                 as_type="tool",
-                input={"query": question}
+                input={"query": question, "raw_entities": raw_entities}
             )
             
             # Execute searches
             graph_facts = self._graph_traversal_search(aligned)
             vector_results = self._vector_search_chunks(question)
-            keyword_results = self._keyword_search_chunks(question)
+            keyword_results = self._keyword_search_bm25(question, raw_entities=raw_entities, aligned_entities=aligned)
             
             # Update and end tools
             tool1.update(output={"facts_count": len(graph_facts)})
@@ -588,26 +636,18 @@ Context:
             })
             retrieval_span.end()
             
-            # Step 4: Aggregate Evidence
+            # Step 4: Aggregate Evidence using RRF
             with self.langfuse.start_as_current_observation(
                 as_type="chain",
-                name="Aggregate_Evidence",
+                name="Aggregate_Evidence_RRF",
                 input={"vector_count": len(vector_results), "keyword_count": len(keyword_results)}
             ) as agg:
-                seen_ids = set()
-                merged = []
-                for r in vector_results:
-                    if r["id"] not in seen_ids:
-                        merged.append(r)
-                        seen_ids.add(r["id"])
-                for r in keyword_results:
-                    if r["id"] not in seen_ids:
-                        merged.append(r)
-                        seen_ids.add(r["id"])
-                
+                # Use Reciprocal Rank Fusion
+                merged = self.reciprocal_rank_fusion([vector_results, keyword_results])
                 agg.update(output={"merged_count": len(merged)})
             
             result["vector_context"] = merged
+            result["keyword_results"] = keyword_results
 
             
             # Step 5: Generate Farmer Answer
