@@ -37,6 +37,7 @@ from components.answer_display import display_answer, display_answer_card
 from components.context_display import display_all_context, display_entities
 from components.trace_display import display_trace_embedded, display_trace_link
 from components.agent_graph_display import display_agent_graph
+from components.comment_input import display_comment_section
 import session_utils as session
 from components.history_display import display_history_table, display_history_detail
 from components.batch_display import display_batch_input, display_batch_results, display_batch_export
@@ -71,6 +72,9 @@ def init_session_state():
     if "batch_results" not in st.session_state:
         st.session_state.batch_results = []
     if "view_history_id" not in st.session_state:
+        st.session_state.view_history_id = None
+    if "current_query_id" not in st.session_state:
+        st.session_state.current_query_id = None
     if "cookie_manager" not in st.session_state:
         st.session_state.cookie_manager = session.get_cookie_manager()
     
@@ -285,9 +289,9 @@ def display_single_query_tab():
             result = pipeline.run_query(question)
             st.session_state.current_result = result
             
-            # Save to history
+            # Save to history and store query_id for comments
             user_id = st.session_state.user["id"]
-            db.save_query_result(
+            query_id = db.save_query_result(
                 user_id=user_id,
                 question=result.question,
                 farmer_answer=result.farmer_answer,
@@ -298,10 +302,10 @@ def display_single_query_tab():
                 graph_facts=result.graph_facts,
                 vector_context=result.vector_context,
                 keyword_results=result.keyword_results,
-
                 pipeline_version=pipeline.get_version(),
                 execution_time=result.execution_time
             )
+            st.session_state.current_query_id = query_id
     
     # Display results
     result = st.session_state.current_result
@@ -317,8 +321,36 @@ def display_single_query_tab():
         
         st.divider()
         
-        # Answer
+        # Load existing comments and setup save callback
+        query_id = st.session_state.get("current_query_id")
+        comments = db.get_comments_for_query(query_id) if query_id else {}
+        
+        # Debug: ALWAYS show query_id status
+        if query_id is None:
+            st.error(f"🔴 DEBUG: current_query_id is None - comments CANNOT be saved!")
+        else:
+            st.info(f"🟢 DEBUG: current_query_id = {query_id} - comments can be saved")
+        
+        def on_comment_save(qid: int, component_type: str, comment_text: str):
+            if qid is None:
+                st.error(f"❌ Cannot save comment: query_id is None")
+                return
+            try:
+                db.save_comment(qid, component_type, comment_text)
+                st.success(f"✅ Comment saved to query {qid}")
+            except Exception as e:
+                st.error(f"❌ Error saving comment: {e}")
+        
+        # Answer with comment
         display_answer(result.farmer_answer, result.question)
+        if query_id:
+            display_comment_section(
+                query_id=query_id,
+                component_type="answer",
+                existing_comment=comments.get("answer"),
+                on_save=on_comment_save,
+                editable=True
+            )
         
         st.divider()
         
@@ -329,8 +361,38 @@ def display_single_query_tab():
             graph_facts=result.graph_facts,
             vector_context=result.vector_context,
             keyword_results=result.keyword_results,
-
         )
+        
+        # Add comment sections for context components
+        if query_id:
+            display_comment_section(
+                query_id=query_id,
+                component_type="entities",
+                existing_comment=comments.get("entities"),
+                on_save=on_comment_save,
+                editable=True
+            )
+            display_comment_section(
+                query_id=query_id,
+                component_type="graph_facts",
+                existing_comment=comments.get("graph_facts"),
+                on_save=on_comment_save,
+                editable=True
+            )
+            display_comment_section(
+                query_id=query_id,
+                component_type="semantic_search",
+                existing_comment=comments.get("semantic_search"),
+                on_save=on_comment_save,
+                editable=True
+            )
+            display_comment_section(
+                query_id=query_id,
+                component_type="keyword_search",
+                existing_comment=comments.get("keyword_search"),
+                on_save=on_comment_save,
+                editable=True
+            )
         
         st.divider()
         

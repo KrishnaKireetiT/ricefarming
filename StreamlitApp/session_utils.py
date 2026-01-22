@@ -5,6 +5,8 @@ Session persistence utilities for cookie-based login.
 import time
 import secrets
 import hashlib
+import json
+from datetime import datetime, timedelta
 from typing import Optional
 import config
 import database as db
@@ -34,9 +36,10 @@ def save_session_cookie(user_id: int, username: str, cookie_manager):
         session_token = generate_session_token(user_id)
         # Save to database
         db.save_session_token(user_id, session_token)
-        # Set cookie (expires in 30 days)
-        cookie_manager.set("session_token", session_token, expires_at=time.time() + 30*24*60*60)
-        cookie_manager.set("user_id", str(user_id), expires_at=time.time() + 30*24*60*60)
+        # Set cookie (expires in 30 days) - combine into single JSON to avoid duplicate key
+        expires = datetime.now() + timedelta(days=30)
+        session_data = json.dumps({"token": session_token, "user_id": user_id})
+        cookie_manager.set("session_data", session_data, expires_at=expires)
 
 def restore_session_from_cookie(cookie_manager) -> Optional[dict]:
     """Restore user session from cookie."""
@@ -45,9 +48,10 @@ def restore_session_from_cookie(cookie_manager) -> Optional[dict]:
     
     try:
         cookies = cookie_manager.get_all()
-        if cookies and "session_token" in cookies and "user_id" in cookies:
-            user_id = int(cookies["user_id"])
-            session_token = cookies["session_token"]
+        if cookies and "session_data" in cookies:
+            session_data = json.loads(cookies["session_data"])
+            user_id = session_data["user_id"]
+            session_token = session_data["token"]
             
             # Validate session token
             if db.validate_session_token(user_id, session_token):
@@ -61,5 +65,4 @@ def restore_session_from_cookie(cookie_manager) -> Optional[dict]:
 def clear_session_cookie(cookie_manager):
     """Clear session cookie on logout."""
     if cookie_manager:
-        cookie_manager.delete("session_token")
-        cookie_manager.delete("user_id")
+        cookie_manager.delete("session_data")

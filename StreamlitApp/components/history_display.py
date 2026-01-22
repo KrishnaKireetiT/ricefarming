@@ -120,12 +120,27 @@ def display_history_detail(entry: Dict):
     from components.context_display import display_all_context
     from components.trace_display import display_trace_link
     from components.agent_graph_display import display_agent_graph
+    from components.comment_input import display_comment_section
+    import database as db
     
     question = entry.get("question", "")
     farmer_answer = entry.get("farmer_answer", "")
+    query_id = entry.get("id")
+    
+    # Load comments for this query
+    comments = db.get_comments_for_query(query_id) if query_id else {}
     
     # Display answer
     display_answer(farmer_answer, question)
+    
+    # Display comment for answer (read-only)
+    if query_id and comments.get("answer"):
+        display_comment_section(
+            query_id=query_id,
+            component_type="answer",
+            existing_comment=comments.get("answer"),
+            editable=False
+        )
     
     st.divider()
     
@@ -137,6 +152,37 @@ def display_history_detail(entry: Dict):
         vector_context=entry.get("vector_context", []),
         keyword_results=entry.get("keyword_results", [])
     )
+    
+    # Display comments for context components (read-only)
+    if query_id:
+        if comments.get("entities"):
+            display_comment_section(
+                query_id=query_id,
+                component_type="entities",
+                existing_comment=comments.get("entities"),
+                editable=False
+            )
+        if comments.get("graph_facts"):
+            display_comment_section(
+                query_id=query_id,
+                component_type="graph_facts",
+                existing_comment=comments.get("graph_facts"),
+                editable=False
+            )
+        if comments.get("semantic_search"):
+            display_comment_section(
+                query_id=query_id,
+                component_type="semantic_search",
+                existing_comment=comments.get("semantic_search"),
+                editable=False
+            )
+        if comments.get("keyword_search"):
+            display_comment_section(
+                query_id=query_id,
+                component_type="keyword_search",
+                existing_comment=comments.get("keyword_search"),
+                editable=False
+            )
     
     st.divider()
     
