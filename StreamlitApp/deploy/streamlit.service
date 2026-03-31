@@ -1,0 +1,25 @@
+[Unit]
+Description=Pipeline Testing Streamlit App
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/pipeline-tester
+Environment="PATH=/opt/pipeline-tester/venv/bin"
+ExecStart=/opt/pipeline-tester/venv/bin/streamlit run app.py --server.port 8501 --server.address 127.0.0.1
+Restart=always
+RestartSec=5
+
+# Resource limits
+MemoryLimit=4G
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=streamlit
+
+[Install]
+WantedBy=multi-user.target
