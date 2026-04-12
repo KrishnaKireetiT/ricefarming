@@ -27,6 +27,7 @@ st.set_page_config(
 import config
 import database as db
 from pipelines.aditi_pipeline import AditiPipeline
+from pipelines.aditi_trial_pipeline import AditiTrialPipeline
 from pipelines.k_graph_rag_pipeline import KGraphRAGPipeline
 from pipelines.base import PipelineResult
 
@@ -54,8 +55,20 @@ def init_session_state():
     """Initialize session state variables."""
     if "user" not in st.session_state:
         st.session_state.user = None
+    # Restore login from persistent session token in the URL (survives back-button & reload)
+    if st.session_state.user is None:
+        token = st.query_params.get("session")
+        if token:
+            user = db.get_user_by_session(token)
+            if user:
+                st.session_state.user = user
+                st.session_state.session_token = token
+    if "session_token" not in st.session_state:
+        st.session_state.session_token = None
+    if "pipeline_cache" not in st.session_state:
+        st.session_state.pipeline_cache = {}
     if "pipeline" not in st.session_state:
-        st.session_state.pipeline = AditiPipeline()  # Default pipeline
+        st.session_state.pipeline = None  # lazily loaded via pipeline_cache
     if "current_result" not in st.session_state:
         st.session_state.current_result = None
     if "batch_results" not in st.session_state:
@@ -133,6 +146,10 @@ def display_login_page():
                         if user:
                             st.session_state.user = user
                             st.session_state.theme = user.get("theme", "light")
+                            # Persist login across reloads / back-button via URL token
+                            token = db.create_session(user["id"])
+                            st.session_state.session_token = token
+                            st.query_params["session"] = token
                             st.success(t("login_successful"))
                             st.rerun()
                         else:
@@ -173,16 +190,25 @@ def display_login_page():
 
 def _init_both_pipelines():
     """Initialize K-GraphRAG and ADITI pipelines for Extension Officer mode."""
+    cache = st.session_state.pipeline_cache
     if st.session_state.pipeline_kgraphrag is None:
-        with st.sidebar.status(t("loading_pipeline_a"), expanded=True):
-            st.session_state.pipeline_kgraphrag = KGraphRAGPipeline()
-            st.session_state.pipeline_kgraphrag.initialize()
-        st.sidebar.success(t("pipeline_a_ready"))
+        cached = cache.get("K-GraphRAG Pipeline (ColBERT + Qwen + RRF)")
+        if cached is None:
+            with st.sidebar.status(t("loading_pipeline_a"), expanded=True):
+                cached = KGraphRAGPipeline()
+                cached.initialize()
+                cache["K-GraphRAG Pipeline (ColBERT + Qwen + RRF)"] = cached
+            st.sidebar.success(t("pipeline_a_ready"))
+        st.session_state.pipeline_kgraphrag = cached
     if st.session_state.pipeline_aditi is None:
-        with st.sidebar.status(t("loading_pipeline_b"), expanded=True):
-            st.session_state.pipeline_aditi = AditiPipeline()
-            st.session_state.pipeline_aditi.initialize()
-        st.sidebar.success(t("pipeline_b_ready"))
+        cached = cache.get("ADITI Triple-Hybrid Pipeline")
+        if cached is None:
+            with st.sidebar.status(t("loading_pipeline_b"), expanded=True):
+                cached = AditiPipeline()
+                cached.initialize()
+                cache["ADITI Triple-Hybrid Pipeline"] = cached
+            st.sidebar.success(t("pipeline_b_ready"))
+        st.session_state.pipeline_aditi = cached
 
 
 def display_sidebar():
@@ -239,8 +265,17 @@ def display_sidebar():
     # Logout at bottom
     st.sidebar.divider()
     if st.sidebar.button(t("logout"), use_container_width=True):
+        token = st.session_state.get("session_token")
+        if token:
+            db.delete_session(token)
         st.session_state.user = None
+        st.session_state.session_token = None
         st.session_state.pipeline = None
+        st.session_state.pipeline_cache = {}
+        try:
+            del st.query_params["session"]
+        except KeyError:
+            pass
         st.rerun()
 
 
@@ -252,6 +287,7 @@ def _display_sidebar_technical(user):
     
     AVAILABLE_PIPELINES = {
         "ADITI Triple-Hybrid Pipeline": AditiPipeline,
+        "ADITI Trial — Updated Handbook 2025": AditiTrialPipeline,
         "K-GraphRAG Pipeline (ColBERT + Qwen + RRF)": KGraphRAGPipeline,
     }
 
@@ -264,16 +300,19 @@ def _display_sidebar_technical(user):
     
     if st.session_state.selected_pipeline != selected_pipeline_name:
         st.session_state.selected_pipeline = selected_pipeline_name
-        st.session_state.pipeline = None
         st.session_state.current_result = None
         st.session_state.batch_results = []
-    
-    if st.session_state.pipeline is None:
+
+    # Reuse a previously-initialized pipeline instead of re-loading models on every switch
+    cached = st.session_state.pipeline_cache.get(selected_pipeline_name)
+    if cached is None:
         with st.sidebar.status("Loading pipeline...", expanded=True):
             PipelineClass = AVAILABLE_PIPELINES[selected_pipeline_name]
-            st.session_state.pipeline = PipelineClass()
-            st.session_state.pipeline.initialize()
+            cached = PipelineClass()
+            cached.initialize()
+            st.session_state.pipeline_cache[selected_pipeline_name] = cached
         st.sidebar.success(f"✅ {selected_pipeline_name} ready!")
+    st.session_state.pipeline = cached
     
     # Database status check
     if st.sidebar.button("🔄 Check DB Status", use_container_width=True):

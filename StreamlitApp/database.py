@@ -266,6 +266,64 @@ def authenticate_user(username: str, password: str) -> Optional[Dict]:
     return None
 
 
+def create_session(user_id: int) -> str:
+    """Create a persistent session token for the given user. Returns the token."""
+    token = secrets.token_urlsafe(32)
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute(
+            "INSERT INTO sessions (token, user_id) VALUES (?, ?)",
+            (token, user_id),
+        )
+        conn.commit()
+    return token
+
+
+def get_user_by_session(token: str) -> Optional[Dict]:
+    """Look up the user associated with a session token."""
+    if not token:
+        return None
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT u.id, u.username, u.email, u.theme
+                FROM sessions s
+                JOIN users u ON u.id = s.user_id
+                WHERE s.token = ?
+                """,
+                (token,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+        except sqlite3.OperationalError:
+            # sessions table doesn't exist yet
+            return None
+    return None
+
+
+def delete_session(token: str) -> None:
+    """Delete a session token (used on logout)."""
+    if not token:
+        return
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+
+
 def get_user_by_id(user_id: int) -> Optional[Dict]:
     """Get user by ID."""
     with get_connection() as conn:

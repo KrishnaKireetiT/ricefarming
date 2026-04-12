@@ -1442,7 +1442,7 @@ Answer:"""
         
         return structured_data
     
-    def generate_answer(self, question: str, retrieved_chunks: List[Dict], measurements: List[Dict] = None) -> tuple:
+    def generate_answer(self, question: str, retrieved_chunks: List[Dict], measurements: List[Dict] = None, language: str = 'vi') -> tuple:
         """
         Generate a farmer-friendly answer from retrieved chunks.
         
@@ -1514,7 +1514,9 @@ Answer:"""
                 context_text += "Pre-computed Unit Conversions (USE THESE, do NOT guess):\n"
                 context_text += "\n".join(conversion_lines) + "\n\n"
         
-        system_prompt = """You are a friendly rice farming advisor. Answer using ONLY the context provided.
+        answer_language_name = "English" if language == "en" else "Vietnamese"
+        system_prompt = f"""You are a friendly rice farming advisor. Answer using ONLY the context provided.
+- ANSWER LANGUAGE: You MUST write the entire answer in {answer_language_name}. Do not switch languages, regardless of the language of the question or the context.
 - Use simple language and be direct
 - Give specific numbers when available
 - Cite the source (chapter and section) when referencing specific information
@@ -2251,7 +2253,8 @@ Return ONLY the topic name, nothing else."""
                 ) as gen_span:
                     farmer_answer, llm_context = self.generate_answer(
                         question, retrieved_chunks,
-                        measurements=typed_entities.get('measurements', [])
+                        measurements=typed_entities.get('measurements', []),
+                        language=language,
                     )
                     gen_span.update(
                         output=farmer_answer,  # Plain string for evaluators
