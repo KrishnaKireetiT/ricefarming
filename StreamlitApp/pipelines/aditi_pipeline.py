@@ -1733,6 +1733,7 @@ Return the corrected answer with the right numbers. Do not add any explanation a
                     'section_title': result.get('section_title', ''),
                     'section_num': result.get('section_num', ''),
                     'chapter_num': result.get('chapter_num', ''),
+                    'pages': result.get('pages', []),
                     'structured_score': 1.0,
                     'bm25_score': 0,
                     'vector_score': 0,
@@ -1749,6 +1750,8 @@ Return the corrected answer with the right numbers. Do not add any explanation a
                     chunk_scores[chunk_id]['section_title'] = result.get('section_title', '')
                     chunk_scores[chunk_id]['section_num'] = result.get('section_num', '')
                     chunk_scores[chunk_id]['chapter_num'] = result.get('chapter_num', '')
+                if not chunk_scores[chunk_id].get('pages'):
+                    chunk_scores[chunk_id]['pages'] = result.get('pages', [])
             else:
                 chunk_scores[chunk_id] = {
                     'chunk_id': chunk_id,
@@ -1758,6 +1761,7 @@ Return the corrected answer with the right numbers. Do not add any explanation a
                     'section_title': result.get('section_title', ''),
                     'section_num': result.get('section_num', ''),
                     'chapter_num': result.get('chapter_num', ''),
+                    'pages': result.get('pages', []),
                     'structured_score': 0,
                     'bm25_score': result['score'],
                     'vector_score': 0
@@ -1784,6 +1788,8 @@ Return the corrected answer with the right numbers. Do not add any explanation a
                     chunk_scores[chunk_id]['section_title'] = result.get('section_title', '')
                     chunk_scores[chunk_id]['section_num'] = result.get('section_num', '')
                     chunk_scores[chunk_id]['chapter_num'] = result.get('chapter_num', '')
+                if not chunk_scores[chunk_id].get('pages'):
+                    chunk_scores[chunk_id]['pages'] = result.get('pages', [])
             else:
                 chunk_scores[chunk_id] = {
                     'chunk_id': chunk_id,
@@ -1793,6 +1799,7 @@ Return the corrected answer with the right numbers. Do not add any explanation a
                     'section_title': result.get('section_title', ''),
                     'section_num': result.get('section_num', ''),
                     'chapter_num': result.get('chapter_num', ''),
+                    'pages': result.get('pages', []),
                     'structured_score': 0,
                     'bm25_score': 0,
                     'vector_score': vector_score
@@ -2272,11 +2279,12 @@ Return ONLY the topic name, nothing else."""
                     'section_title': c.get('section_title', ''),
                     'section_num': c.get('section_num', ''),
                     'chapter_num': c.get('chapter_num', ''),
+                    'pages': c.get('pages', []),
                     'score': c.get('bm25_score', 0)
                 }
                 for c in retrieved_chunks if c.get('bm25_score', 0) > 0
             ]
-            
+
             # Vector results
             vector_context = [
                 {
@@ -2286,11 +2294,12 @@ Return ONLY the topic name, nothing else."""
                     'section_title': c.get('section_title', ''),
                     'section_num': c.get('section_num', ''),
                     'chapter_num': c.get('chapter_num', ''),
+                    'pages': c.get('pages', []),
                     'score': c.get('vector_score', 0)
                 }
                 for c in retrieved_chunks if c.get('vector_score', 0) > 0
             ]
-            
+
             # RRF fused results (hybrid scores)
             rrf_fused_results = [
                 {
@@ -2300,6 +2309,7 @@ Return ONLY the topic name, nothing else."""
                     'section_title': c.get('section_title', ''),
                     'section_num': c.get('section_num', ''),
                     'chapter_num': c.get('chapter_num', ''),
+                    'pages': c.get('pages', []),
                     'hybrid_score': c['hybrid_score'],
                     'structured_score': c['structured_score'],
                     'bm25_score': c['bm25_score'],
