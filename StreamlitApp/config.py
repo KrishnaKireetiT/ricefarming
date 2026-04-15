@@ -64,6 +64,11 @@ COLBERT_EMBED_BASE = os.getenv("COLBERT_EMBED_BASE", str(APP_DIR.parent.parent.p
 COLBERT_SEARCH_K = int(os.getenv("COLBERT_SEARCH_K", "10"))
 
 # ========================================
+# Generation Model (alias for LLM)
+# ========================================
+GENERATION_MODEL = LLM_MODEL_NAME
+
+# ========================================
 # Search Configuration
 # ========================================
 ENTITY_ALIGNMENT_THRESHOLD = float(os.getenv("ENTITY_ALIGNMENT_THRESHOLD", "0.6"))
@@ -71,6 +76,16 @@ VECTOR_SEARCH_K = int(os.getenv("VECTOR_SEARCH_K", "5"))
 KEYWORD_SEARCH_K = int(os.getenv("KEYWORD_SEARCH_K", "3"))
 GRAPH_TRAVERSAL_TOP_K = int(os.getenv("GRAPH_TRAVERSAL_TOP_K", "20"))
 RRF_K = int(os.getenv("RRF_K", "60"))
+RRF_MIN_SCORE = float(os.getenv("RRF_MIN_SCORE", "0.0"))
+MAX_GRAPH_HOPS = int(os.getenv("MAX_GRAPH_HOPS", "1"))
+
+# ========================================
+# Chunk Data Path (Phase5 pipeline)
+# ========================================
+OUTPUT_CHUNKS_VI = os.getenv("OUTPUT_CHUNKS_VI", "/mnt/node5_tpu_data_code_1/new_handbook/phase1_chunks_vi.json")
+
+# Neo4j for Phase5 pipeline (may differ from default)
+PHASE5_NEO4J_URI = os.getenv("PHASE5_NEO4J_URI", "bolt://localhost:7688")
 
 # ========================================
 # Relation Weights for Graph Traversal

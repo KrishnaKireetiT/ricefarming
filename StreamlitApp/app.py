@@ -28,7 +28,7 @@ import config
 import database as db
 from pipelines.aditi_pipeline import AditiPipeline
 from pipelines.aditi_trial_pipeline import AditiTrialPipeline
-from pipelines.k_graph_rag_pipeline import KGraphRAGPipeline
+from pipelines.phase5_pipeline import Phase5Pipeline
 from pipelines.base import PipelineResult
 
 # Import components
@@ -189,15 +189,15 @@ def display_login_page():
 # ================================================================
 
 def _init_both_pipelines():
-    """Initialize K-GraphRAG and ADITI pipelines for Extension Officer mode."""
+    """Initialize Phase5 and ADITI pipelines for Extension Officer mode."""
     cache = st.session_state.pipeline_cache
     if st.session_state.pipeline_kgraphrag is None:
-        cached = cache.get("K-GraphRAG Pipeline (ColBERT + Qwen + RRF)")
+        cached = cache.get("Phase5 Graph RAG (v2)")
         if cached is None:
             with st.sidebar.status(t("loading_pipeline_a"), expanded=True):
-                cached = KGraphRAGPipeline()
+                cached = Phase5Pipeline()
                 cached.initialize()
-                cache["K-GraphRAG Pipeline (ColBERT + Qwen + RRF)"] = cached
+                cache["Phase5 Graph RAG (v2)"] = cached
             st.sidebar.success(t("pipeline_a_ready"))
         st.session_state.pipeline_kgraphrag = cached
     if st.session_state.pipeline_aditi is None:
@@ -288,7 +288,7 @@ def _display_sidebar_technical(user):
     AVAILABLE_PIPELINES = {
         "ADITI Triple-Hybrid Pipeline": AditiPipeline,
         "ADITI Trial — Updated Handbook 2025": AditiTrialPipeline,
-        "K-GraphRAG Pipeline (ColBERT + Qwen + RRF)": KGraphRAGPipeline,
+        "Phase5 Graph RAG (v2)": Phase5Pipeline,
     }
 
     selected_pipeline_name = st.sidebar.selectbox(
